@@ -238,14 +238,14 @@ class Conv1D(nn.Cell):
         super(Conv1D, self).__init__()
         self.nx = nx
         self.nf = nf
-        self.weight = Parameter(normal_weight([nx, nf], nf))
-        self.bias = Parameter(zero_weight(nf))
+        self.weight = Parameter(normal_weight([nx, nf], nf), name='projection_weight')
+        self.bias = Parameter(zero_weight(nf), name='projection_bias')
 
-        self.multiply = P.Mul()
+        self.matmul = P.MatMul()
         self.add = P.TensorAdd()
 
     def construct(self, input_tensor):  # [batch_size * seq_length, nx]
-        output_tensor = self.multiply(input_tensor, self.weight)  # [batch_size * seq_length, self.nf]
+        output_tensor = self.matmul(input_tensor, self.weight)  # [batch_size * seq_length, self.nf]
         output_tensor = self.add(output_tensor, self.bias) # [batch_size * seq_length, self.nf]
 
         return output_tensor
@@ -295,7 +295,7 @@ class MaskedSelfAttention(nn.Cell):
         self.c_attn = Conv1D(d_model, d_model*3)
         self.c_proj = Conv1D(d_model, d_model)
 
-        self.split_for_qkv = P.Split(1, 2) # P.Split(axis, output_num)
+        self.split_for_qkv = P.Split(1, 3) # P.Split(axis, output_num)
         # self.shape = P.Shape()
         self.reshape = P.Reshape()
         self.transpose = P.Transpose()
@@ -343,7 +343,7 @@ class MaskedSelfAttention(nn.Cell):
         attention_scores = self.multiply(attention_scores, self.scale)
 
         if self.has_attention_mask:
-            attention_mask = self.expand_dims(attention_mask, 1) # [seq_length, 1, seq_length]
+            attention_mask = self.expand_dims(attention_mask, 1) # [batch_size, 1, seq_length, seq_length]
             multiply_out = self.sub(self.cast(F.tuple_to_array((1.0,)), self.get_dtype(attention_scores)),
                                     self.cast(attention_mask, self.get_dtype(attention_scores)))
             adder = self.multiply(multiply_out, self.mask_data)
@@ -635,7 +635,7 @@ class GPT2Model(nn.Cell):
     def __init__(self,
                  config,
                  is_training,
-                 use_one_hot_embedding=False):
+                 use_one_hot_embeddings=False):
         super(GPT2Model, self).__init__()
         config = copy.deepcopy(config)
         self.is_training = is_training
@@ -655,7 +655,7 @@ class GPT2Model(nn.Cell):
         self.gpt2_embedding_lookup = EmbeddingLookup(
             vocab_size=config.vocab_size,
             embedding_dim=self.embedding_dim,
-            use_one_hot_embeddings=use_one_hot_embedding
+            use_one_hot_embeddings=use_one_hot_embeddings
         )
         self.gpt2_embedding_postprocess = EmbeddingPostprocessor(
             embedding_dim=self.embedding_dim,
