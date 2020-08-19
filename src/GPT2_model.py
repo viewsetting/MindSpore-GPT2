@@ -558,8 +558,6 @@ class GPT2Transformer(nn.Cell):
 
         self.layers = nn.CellList(layers)
 
-        self.layer_norm = LayerNorm(in_channels=d_model)
-
         self.reshape = P.Reshape()
         self.new_shape = (-1, d_model)
         self.out_shape = (batch_size, seq_length, d_model)
@@ -570,7 +568,6 @@ class GPT2Transformer(nn.Cell):
             layer_output = layer_module(prev_output, attention_mask)
             prev_output = layer_output
 
-        prev_output = self.layer_norm(prev_output)
         output = self.reshape(prev_output, self.out_shape)
         return output
 
