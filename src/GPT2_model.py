@@ -105,57 +105,35 @@ class EmbeddingLookup(nn.Cell):
         output = self.reshape(output_for_reshape, out_shape) # [batch_size, seq_length, embedidng_dim]
         return output, self.embedding_table
 
-def position_encoding(length,
-                      d_model,
-                      min_timescale=1,
-                      max_timescale=1e4):
-    """
-    Create Tensor of sinusoids of different frequencies.
-
-    Args:
-        length (int): Length of the Tensor to create, i.e. Number of steps.
-        d_model (int): Hidden size.
-        min_timescale (float): Default: 1.
-        max_timescale (float): Default: 10000.
-
-    Returns:
-        Tensor of shape (length, d_model)
-    """
-    d_model = d_model // 2
-    positions = np.arange(length, dtype=np.float32)
-    log_timescale_increment = (np.log(max_timescale / min_timescale) / (d_model - 1))
-    inv_timescales = min_timescale * np.exp(np.arange(d_model, dtype=np.float32) * -log_timescale_increment)
-    scaled_time = np.expand_dims(positions, 1) * np.expand_dims(inv_timescales, 0)
-    x = np.concatenate([np.sin(scaled_time), np.cos(scaled_time)], axis=1)
-    return x
-
 class EmbeddingPostprocessor(nn.Cell):
     """
     Postprocessors apply positional embeddings to word embeddings.
 
     Args:
         embedding_dim (int): The size of each embedding vector.
+        embedding_shape (tuple): [batch_size, seq_length, embedding_size], the shape of each embedding vector.
         max_position_embeddings (int): Maximum length of sequences used in this model. Default: 1024.
         dropout_prob (float): The dropout probability. Default: 0.1.
-    """
+     """
     def __init__(self,
                  embedding_dim,
+                 embedding_shape,
                  max_position_embeddings=1024,
                  dropout_prob=0.1):
         super(EmbeddingPostprocessor, self).__init__()
 
+        self.position_embedding_table = Parameter(normal_weight([max_position_embeddings, embedding_dim], embedding_dim), name='position_embeddings')
+        self.shape = tuple(embedding_shape) # [batch_size, seq_len, d_model]
+        self.expand_dims = P.ExpandDims()
         self.add = P.TensorAdd()
+        self.slice = P.StridedSlice()
         self.dropout = nn.Dropout(1 - dropout_prob, dtype=mstype.float32)
         self.use_dropout = dropout_prob > 0
-        self.expand_dims = P.ExpandDims()
-        self.position_embedding_table = Tensor(position_encoding(max_position_embeddings, embedding_dim), mstype.float32)
-        self.shape = P.Shape()
 
     def construct(self, word_embeddings):
-        input_shape = self.shape(word_embeddings) # [batch_szie, seq_length, embedding_dim]
-        input_len = input_shape[1] # seq_length
-
-        position_embeddings = self.position_embedding_table[0:input_len:1, ::]
+        output = word_embeddings
+        _, seq_len, dim = self.shape
+        position_embeddings = self.slice(self.position_embedding_table, (0, 0), (seq_len, dim), (1, 1))
         position_embeddings = self.expand_dims(position_embeddings, 0)
         output = self.add(word_embeddings, position_embeddings)
 
@@ -656,6 +634,7 @@ class GPT2Model(nn.Cell):
         )
         self.gpt2_embedding_postprocess = EmbeddingPostprocessor(
             embedding_dim=self.embedding_dim,
+            embedding_shape=(self.batch_size, self.seq_length, self.d_model),
             max_position_embeddings=config.max_position_embeddings,
             dropout_prob=config.hidden_dropout
         )
