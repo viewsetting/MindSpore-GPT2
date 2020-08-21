@@ -1,6 +1,6 @@
 import math
 import numpy as np
-from mindspore.common.tesnor import Tensor
+from mindspore.common.tensor import Tensor
 
 def _average_units(shape):
     if not shape:
