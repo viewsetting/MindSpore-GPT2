@@ -1,6 +1,6 @@
 import tensorflow as tf
 import numpy as np
-from trans_dict_tf import trans_dict
+from trans_dict import trans_dict_tf
 
 """ to read the parameters of the gpt-2 pretrained model from tensorflow checkpoint
     and save them into npy files for mindspore to load.

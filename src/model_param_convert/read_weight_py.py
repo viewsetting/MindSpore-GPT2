@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from trans_dict_py import trans_dict
+from trans_dict import trans_dict_py
 
 """ to read the parameters of the gpt-2 pretrained model from pytorch into mindspore
     and save them into npy files for mindspore to load

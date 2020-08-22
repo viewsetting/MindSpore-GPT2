@@ -1,7 +1,7 @@
 from mindspore import Tensor
 import numpy as np
 from mindspore.train.serialization import save_checkpoint
-from trans_dict_tf import trans_dict
+from trans_dict import trans_dict_tf
 import os
 #In this script, dict_tf and dict_py have the same effect. So we can choose one of them.
 
