@@ -12,6 +12,7 @@ import numpy as np
 class CrossEntropyCalculation(nn.Cell):
     """
     Cross Entropy loss
+    modified from  /mindspore/model_zoo/official/nlp/bert/src/utils.py
 
     Args:
         num_labels: number of labels (int), depth of operations.OneHot()
@@ -19,8 +20,6 @@ class CrossEntropyCalculation(nn.Cell):
 
     Return:
         loss: Average Cross Entrophy of a squeezed logits tensor when training, else logits it self.
-        output: ( [batch_size,seq_length,vocab_size], loss) loss is the average cross entrophy loss over a batch, loss
-        is not generated if labels is given. labels here could be the next-token sequence.
     """
 
     def __init__(self, num_labels, is_training=True):
@@ -52,17 +51,24 @@ class CrossEntropyCalculation(nn.Cell):
 
 
 class GPT2ForPredictNext(nn.Cell):
-
+   """
+   GPT2ForPredictNext
+        generate the next token, precisely, for now.
+   """
     def __init__(self, config, is_training=True):
         super(GPT2ForSummary, self).__init__()
         self.transformer = GPT2Model(config, is_training)
         self.lm_head = nn.Dense(config.d_model, config.vocab_size, has_bias=False,
                                 weight_init=Normal(sigma=config.initializer_range))
+        
+        #dequote to use mindspore implement
         #self.loss_function = nn.SoftmaxCrossEntropyWithLogits(sparse = True)
+
+        #modified loss_function from modelzoo/official/nlp/bert/src/utils.py
         self.loss_function = CrossEntropyCalculation(
             config.vocab_size, is_training=True)
         self.reshape = P.Reshape()
-        #self.squeeze = P.Squeeze(0)
+
 
     def get_output_embeddings(self):
         return self.lm_head
@@ -75,6 +81,13 @@ class GPT2ForPredictNext(nn.Cell):
         #input_embeddings = None
         labels=None
     ):
+    """
+    return: 
+        output: ( [batch_size,seq_length,vocab_size], loss),transformer outputs except for the first token.
+         loss is the average cross entrophy loss over a batch, loss is not generated if labels is given. 
+         labels here could be the next-token sequence.
+    """
+
         transformer_outputs = self.transformer(
             input_ids,
             input_mask
@@ -120,7 +133,7 @@ def top_k_sample(logits, top_k = 2):
     return:
         token_ids: selected token index tensor, [batch_size]
     """
-    assert logits.dim() <= 2
+    assert logits.dim() == 2
     top_k = min(top_k, logits.shape[-1])
     topk_op = P.TopK()
     topk_prob, topk_indices = topk_op(logits,2)
@@ -140,4 +153,4 @@ def top_k_sample(logits, top_k = 2):
     final_tokens_tensor = Tensor(final_tokens,dtype = mstype.int32)
 
     return final_tokens_tensor
-    pass
+
