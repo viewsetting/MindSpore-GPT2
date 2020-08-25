@@ -8,7 +8,6 @@ from scipy.special import softmax
 import numpy as np
 
 
-
 class CrossEntropyCalculation(nn.Cell):
     """
     Cross Entropy loss
@@ -51,46 +50,47 @@ class CrossEntropyCalculation(nn.Cell):
 
 
 class GPT2ForPredictNext(nn.Cell):
-   """
-   GPT2ForPredictNext
+    """
+        GPT2ForPredictNext
         generate the next token, precisely, for now.
-   """
+    """
+
     def __init__(self, config, is_training=True):
-        super(GPT2ForSummary, self).__init__()
+        super(GPT2ForPredictNext, self).__init__()
         self.transformer = GPT2Model(config, is_training)
         self.lm_head = nn.Dense(config.d_model, config.vocab_size, has_bias=False,
                                 weight_init=Normal(sigma=config.initializer_range))
-        
-        #dequote to use mindspore implement
-        #self.loss_function = nn.SoftmaxCrossEntropyWithLogits(sparse = True)
 
-        #modified loss_function from modelzoo/official/nlp/bert/src/utils.py
+        # dequote to use mindspore implement
+        # self.loss_function = nn.SoftmaxCrossEntropyWithLogits(sparse = True)
+
+        # modified loss_function from modelzoo/official/nlp/bert/src/utils.py
         self.loss_function = CrossEntropyCalculation(
             config.vocab_size, is_training=True)
         self.reshape = P.Reshape()
 
-
     def get_output_embeddings(self):
         return self.lm_head
+
+    """
+        return:
+        output: ( [batch_size,seq_length,vocab_size], loss),transformer outputs except for the first token.
+        loss is the average cross entrophy loss over a batch, loss is not generated if labels is given.
+        labels here could be the next-token sequence.
+    """
 
     def construct(
         self,
         input_ids=None,
         input_mask=None,
-        #position_ids = None
-        #input_embeddings = None
+        # position_ids = None
+        # input_embeddings = None
         labels=None
     ):
-    """
-    return: 
-        output: ( [batch_size,seq_length,vocab_size], loss),transformer outputs except for the first token.
-         loss is the average cross entrophy loss over a batch, loss is not generated if labels is given. 
-         labels here could be the next-token sequence.
-    """
 
         transformer_outputs = self.transformer(
-            input_ids,
-            input_mask
+        input_ids,
+        input_mask
         )
 
         hidden_state = transformer_outputs[0]
@@ -114,10 +114,10 @@ class GPT2ForPredictNext(nn.Cell):
                 shift_squeezed_logits, shift_squeezed_labels)
 
         output = (lm_logits,) + transformer_outputs[1:]
-        return ((output,)+loss) if loss is not None else output
+        return (output,loss) if loss is not None else (output,)
 
 
-def top_k_sample(logits, top_k = 2):
+def top_k_sample(logits, top_k=2):
     """
     generate the next tokens from sampling of top-k tokens of gpt-2.
     After top-k of last logits that gpt-2 model returns being selected, this top-k
@@ -136,21 +136,21 @@ def top_k_sample(logits, top_k = 2):
     assert logits.dim() == 2
     top_k = min(top_k, logits.shape[-1])
     topk_op = P.TopK()
-    topk_prob, topk_indices = topk_op(logits,2)
-    softmax = P.Softmax(axis = -1)
+    topk_prob, topk_indices = topk_op(logits, 2)
+    softmax = P.Softmax(axis=-1)
     topk_prob = softmax(topk_prob)
 
     topk_prob_np = topk_prob.asnumpy()
     topk_indices_np = topk_indices.asnumpy()
-    
+
     batch_size = logits.shape[0]
     final_tokens = []
     for batch in range(batch_size):
-        final_token = np.argmax(np.random.multinomial(1,topk_prob_np[batch],size = 1)[0])
+        final_token = np.argmax(np.random.multinomial(
+            1, topk_prob_np[batch], size=1)[0])
         final_tokens.append(topk_indices_np[batch][final_token])
 
-    final_tokens = np.array(final_tokens,dtype = np.int32)
-    final_tokens_tensor = Tensor(final_tokens,dtype = mstype.int32)
+    final_tokens = np.array(final_tokens, dtype=np.int32)
+    final_tokens_tensor = Tensor(final_tokens, dtype=mstype.int32)
 
     return final_tokens_tensor
-
