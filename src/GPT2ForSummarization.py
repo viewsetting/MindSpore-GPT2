@@ -68,6 +68,7 @@ class GPT2ForPredictNext(nn.Cell):
         self.loss_function = CrossEntropyCalculation(
             config.vocab_size, is_training=True)
         self.reshape = P.Reshape()
+        self.softmax = nn.Softmax(axis = -1)
 
     def get_output_embeddings(self):
         return self.lm_head
@@ -99,6 +100,7 @@ class GPT2ForPredictNext(nn.Cell):
 
         hidden_state = self.reshape(hidden_state, (-1, hidden_state.shape[-1]))
         lm_logits = self.lm_head(hidden_state)
+        lm_logits = self.softmax(lm_logits)
         lm_logits = self.reshape(lm_logits, (batch_size, sequence_length, -1))
 
         loss = None
