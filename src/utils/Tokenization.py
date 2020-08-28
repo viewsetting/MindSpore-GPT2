@@ -1,3 +1,4 @@
+# sentence->tokenized->bpe encode
 """Byte pair encoding utilities"""
 
 import os
