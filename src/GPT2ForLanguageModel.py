@@ -11,11 +11,11 @@ class GPT2LanguageModel(nn.Cell):
 
         self.gpt2 = GPT2Model(config, is_training, use_one_hot_embeddings)
         self.cast = P.Cast()
-        self.log_softmax = P.LogSoftmax(axis=-1)
+
         self.dtype = config.dtype
-        self.dense1 = nn.Dense(config.hidden_size,
+        self.dense1 = nn.Dense(config.d_model,
                                config.vocab_size,
-                               weight_init=weight_variable([config.hidden_size, config.vocab_size]),
+                               weight_init=weight_variable([config.d_model, config.vocab_size]),
                                has_bias=True).to_float(config.compute_type)
         self.dropout = nn.Dropout(1 - config.hidden_dropout)
 
@@ -23,8 +23,7 @@ class GPT2LanguageModel(nn.Cell):
         output, _ = self.gpt2(input_ids, input_mask)
         output = self.cast(output, self.dtype)
         output = self.dropout(output)
-        logits = self.dense1(output)
-        logits = self.cast(logits, self.dtype)
-        logits = self.log_softmax(logits)
+        output = self.dense1(output)
+        output = self.cast(output, self.dtype)
 
-        return logits
+        return output
