@@ -1,11 +1,3 @@
-'''
-Author: xmh
-Date: 2020-08-29 17:12:42
-LastEditors: xmh
-LastEditTime: 2020-08-30 10:11:31
-Description: 
-FilePath: \scatter\mycode\my_tokenization.py
-'''
 import json
 import regex as re
 from functools import lru_cache
