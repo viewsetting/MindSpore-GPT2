@@ -14,7 +14,7 @@ class GPT2LM(nn.Cell):
     def __init__(self, config, is_training, use_one_hot_embeddings=False):
         super(GPT2LM, self).__init__()
         self.gpt2 = GPT2LanguageModel(config, is_training, use_one_hot_embeddings)
-        self.loss = nn.SoftmxCrossEntropyWithLogits(is_grad=False, sparse=True)
+        self.loss = nn.SoftmaxCrossEntropyWithLogits(is_grad=False, sparse=True)
         self.is_training = is_training
         self.log_softmax = P.LogSoftmax(axis=-1)
         self.reshape = P.Reshape()
