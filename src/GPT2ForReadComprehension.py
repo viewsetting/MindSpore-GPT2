@@ -18,14 +18,12 @@ class GPT2CoQAModel(nn.Cell):
             config.compute_type)
         self.vocab_size = config.vocab_size
         self.dtype = config.dtype
-        self.log_softmax = P.LogSoftmax(axis=1)
 
     def construct(self, input_ids, input_mask):
-        decoder_output, _ = self.bert(input_ids, input_mask)
+        decoder_output, _ = self.gpt2(input_ids, input_mask)
         batch_size, seq_length, hidden_size = P.Shape()(decoder_output)
         sequence = P.Reshape()(decoder_output, (-1, hidden_size))
         logits = self.dense1(sequence)
         logits = P.Cast()(logits, self.dtype)
         logits = P.Reshape()(logits, (batch_size, seq_length, self.vocab_size))
-        logits = self.log_softmax(logits)
         return logits

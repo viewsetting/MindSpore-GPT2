@@ -7,12 +7,14 @@ from mindspore.common.tensor import Tensor
 import mindspore.common.dtype as mstype
 from mindspore import context
 from .GPT2ForLanguageModel import GPT2LanguageModel
+from .GPT2ForReadComprehension import GPT2CoQAModel
+
 
 class GPT2LM(nn.Cell):
     def __init__(self, config, is_training, use_one_hot_embeddings=False):
         super(GPT2LM, self).__init__()
         self.gpt2 = GPT2LanguageModel(config, is_training, use_one_hot_embeddings)
-        self.loss = nn.SoftmxCrossEntropyWithLogits(is_grad=False, sparse=True)
+        self.loss = nn.SoftmaxCrossEntropyWithLogits(is_grad=False, sparse=True)
         self.is_training = is_training
         self.log_softmax = P.LogSoftmax(axis=-1)
         self.reshape = P.Reshape()
@@ -26,6 +28,29 @@ class GPT2LM(nn.Cell):
 
         if self.is_training:
             label_ids = self.reshape(label_ids, self.last_idx)
+            loss = self.loss(output, label_ids)
+        else:
+            logits = self.log_softmax(output)
+            loss = logits * 1.0
+        return loss
+
+
+class GPT2CoQA(nn.Cell):
+    def __init__(self, config, is_training, use_one_hot_embeddings=False):
+        super(GPT2CoQA, self).__init__()
+        self.gpt2 = GPT2CoQAModel(config, is_training, use_one_hot_embeddings)
+        self.loss = nn.SoftmaxCrossEntropyWithLogits(is_grad=False, sparse=True)
+        self.is_training = is_training
+        self.log_softmax = P.LogSoftmax(axis=-1)
+        self.last_idx = (-1,)
+
+    def construct(self, input_ids, input_mask, label_ids):
+        output = self.gpt2(input_ids, input_mask)
+        output_shape = P.Shape()(output)
+        output = P.Reshape()(output, (-1, output_shape[-1]))
+
+        if self.is_training:
+            label_ids = P.Reshape()(label_ids, self.last_idx)
             loss = self.loss(output, label_ids)
         else:
             logits = self.log_softmax(output)
