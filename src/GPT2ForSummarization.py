@@ -145,7 +145,6 @@ class GPT2ForPredictNext(nn.Cell):
             #to prevent loss of float calculation
             top_p_pos = int(np.searchsorted(cumsum,p-1e6))
            
-            print(p,cumsum[top_p_pos],top_p_pos)
             top_p_index = indices[batch_idx][0:top_p_pos+1]
             tmp_onehot = self.onehot(top_p_index,vocab_size,on_value,off_value)
             for top_num in range(top_p_pos+1):
