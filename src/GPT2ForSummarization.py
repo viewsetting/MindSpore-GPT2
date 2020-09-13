@@ -68,7 +68,78 @@ class GPT2ForPredictNext(nn.Cell):
         self.loss_function = CrossEntropyCalculation(
             config.vocab_size, is_training=True)
         self.reshape = P.Reshape()
-        self.softmax = nn.Softmax(axis = -1)
+        self.softmax = nn.Softmax(axis=-1)
+        self.batch_size = config.batch_size
+        self.vocab_size = config.vocab_size
+
+    def top_k_logits(self,logits, k):
+
+        assert logits.dim() == 2
+
+        def _top_k():
+
+            topk = P.TopK(sorted=False)
+            _, indexes = topk(logits, k)
+
+            batch_size = logits.shape[0]
+            vocab_length = logits.shape[-1]
+            assert batch_size == self.batch_size
+            #assert vocab_length == self.vocab_size
+
+            top_k_logits_np = np.zeros([batch_size, vocab_length], dtype=float)
+
+            for batch_idx in range(batch_size):
+                topk_index = 0
+                for vocab_idx in range(vocab_length):
+                    if topk_index >= k:
+                        top_k_logits_np[batch_idx][vocab_idx] = 0.0
+                        continue
+
+                    if vocab_idx != indexes[batch_idx][topk_index]:
+                        top_k_logits_np[batch_idx][vocab_idx] = 0.0
+                    else:
+                        top_k_prob = float(logits[batch_idx][vocab_idx].asnumpy())
+                        top_k_logits_np[batch_idx][vocab_idx] = top_k_prob
+                        topk_index += 1
+
+            top_k_logits = Tensor(top_k_logits_np, dtype=mstype.float32)
+            return top_k_logits
+
+        if k == 0:
+            return logits
+        else:
+            return _top_k()
+
+    def top_p_logits(self,logits, p):
+        assert logits.dim() == 2
+        
+        batch_size = logits.shape[0]
+        vocab_length = logits.shape[-1]
+
+        assert batch_size == self.batch_size
+
+        top_k = P.TopK(sorted=True)
+        values,indexes = top_k(logits,vocab_length)
+        
+        cumsum = P.CumSum()
+        sum_values = cumsum(values,1)
+
+        top_p_np = np.zeros([batch_size,vocab_length],dtype = float)
+
+        for batch_idx in range(batch_size):
+            flag = False
+            for vocab_idx in range(vocab_length):
+                if flag == True:
+                    break
+                vocab_idx_logits = int(indexes[batch_idx][vocab_idx].asnumpy())
+                vocab_prob = float(values[batch_idx][vocab_idx].asnumpy())
+                top_p_np[batch_idx][vocab_idx_logits] = vocab_prob
+                if sum_values[batch_idx][vocab_idx] >= p:
+                    flag = True
+        
+        top_p = Tensor(top_p_np,dtype = mstype.float32)
+        return top_p
+
 
     def get_output_embeddings(self):
         return self.lm_head
@@ -90,8 +161,8 @@ class GPT2ForPredictNext(nn.Cell):
     ):
 
         transformer_outputs = self.transformer(
-        input_ids,
-        input_mask
+            input_ids,
+            input_mask
         )
 
         hidden_state = transformer_outputs[0]
@@ -116,7 +187,7 @@ class GPT2ForPredictNext(nn.Cell):
                 shift_squeezed_logits, shift_squeezed_labels)
 
         output = (lm_logits,) + transformer_outputs[1:]
-        return (output,loss) if loss is not None else (output,)
+        return (output, loss) if loss is not None else (output,)
 
 
 def top_k_sample(logits, top_k=2):
