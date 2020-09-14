@@ -73,7 +73,43 @@ class GPT2ForPredictNext(nn.Cell):
         self.vocab_size = config.vocab_size
         self.onehot = P.OneHot()
 
-    def top_k_logits(self,logits, k):
+
+    def top_k_logits(self,logits,k):
+        assert logits.dim() == 2, "logits should be a mindspore.Tensor with shape [config.batch_size, config.vocab_size]."
+
+        topk = P.TopK(sorted=True)
+        logits_sorted,indices = topk(logits,k)
+
+        batch_size = logits.shape[0]
+        vocab_size = logits.shape[-1]
+        assert batch_size == self.batch_size, "Logits's shape[0] should be tantamount to config.batch_size"
+        #assert vocab_length == self.vocab_size, "Logits's shape[1] should be tantamount to config.vocab_size"
+
+        mask = Tensor(np.zeros((batch_size,vocab_size)),dtype=mstype.float32)
+        on_value = Tensor(1.0, mstype.float32)
+        off_value = Tensor(0.0, mstype.float32)
+
+        for batch_idx in range(batch_size):
+            top_k_indices = indices[batch_idx][:k]
+            tmp_onehot = self.onehot(top_k_indices,vocab_size,on_value,off_value)
+            for top_k_indice in range(k):
+                real_index = int(indices[batch_idx][top_k_indice].asnumpy())
+                if top_k_indice != 0:
+                    tmp_onehot[top_k_indice] *= 1.0
+                    tmp_onehot[0] += tmp_onehot[top_k_indice]*logits[batch_idx][real_index]
+                else:
+                    tmp_onehot[0] *= logits[batch_idx][real_index]
+            mask[batch_idx] += tmp_onehot[0]
+
+
+        return mask
+        
+
+
+    """
+    This is the deprecated top_k_logits() implementation, using numpy functions to convert mindspore.Tensor
+    """
+    def _top_k_logits(self,logits, k):
 
         assert logits.dim() == 2, "logits should be a mindspore.Tensor with shape [config.batch_size, config.vocab_size]."
 
@@ -117,7 +153,8 @@ class GPT2ForPredictNext(nn.Cell):
         batch_size = logits.shape[0]
         vocab_length = logits.shape[-1]
 
-        assert batch_size == self.batch_size
+        assert batch_size == self.batch_size, "Logits's shape[0] should be tantamount to config.batch_size"
+        #assert vocab_length == self.vocab_size, "Logits's shape[1] should be tantamount to config.vocab_size"
 
         top_k = P.TopK(sorted=True)
         values,indexes = top_k(logits,vocab_length)
@@ -129,7 +166,8 @@ class GPT2ForPredictNext(nn.Cell):
 
         return top_p_logits
         
-
+    def get_top_p_logits(self,logits,cumsum_logits,indices,p):
+        raise NotImplementedError
 
     def get_top_p_onehot_mask(self,logits,cumsum_logits,indices,p):
         batch_size = cumsum_logits.shape[0]
@@ -144,7 +182,7 @@ class GPT2ForPredictNext(nn.Cell):
             
             #to prevent loss of float calculation
             top_p_pos = int(np.searchsorted(cumsum,p-1e6))
-           
+            
             top_p_index = indices[batch_idx][0:top_p_pos+1]
             tmp_onehot = self.onehot(top_p_index,vocab_size,on_value,off_value)
             for top_num in range(top_p_pos+1):
