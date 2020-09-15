@@ -55,9 +55,10 @@ class GPT2ForPredictNext(nn.Cell):
         generate the next token, precisely, for now.
     """
 
-    def __init__(self, config, is_training=True):
+    def __init__(self, config, is_training=True, use_one_hot_embeddings=False):
         super(GPT2ForPredictNext, self).__init__()
-        self.transformer = GPT2Model(config, is_training)
+        self.transformer = GPT2Model(
+            config, is_training, use_one_hot_embeddings)
         self.lm_head = nn.Dense(config.d_model, config.vocab_size, has_bias=False,
                                 weight_init=Normal(sigma=config.initializer_range))
 
@@ -71,47 +72,55 @@ class GPT2ForPredictNext(nn.Cell):
         self.softmax = nn.Softmax(axis=-1)
         self.batch_size = config.batch_size
         self.vocab_size = config.vocab_size
+        self.seq_length = config.seq_length
         self.onehot = P.OneHot()
 
+    """
+    top_k_logits(): top_k sampling, which filters out the top-k vocabs with the highest probability. The rest ones
+    are set by 0 in this function's returned logits. 
+    """
 
-    def top_k_logits(self,logits,k):
-        assert logits.dim() == 2, "logits should be a mindspore.Tensor with shape [config.batch_size, config.vocab_size]."
+    def top_k_logits(self, logits, k):
+        assert logits.dim(
+        ) == 2, "logits should be a mindspore.Tensor with shape [config.batch_size, config.vocab_size]."
 
         topk = P.TopK(sorted=True)
-        logits_sorted,indices = topk(logits,k)
+        logits_sorted, indices = topk(logits, k)
 
         batch_size = logits.shape[0]
         vocab_size = logits.shape[-1]
         assert batch_size == self.batch_size, "Logits's shape[0] should be tantamount to config.batch_size"
+        # quote here for test, TEMPORARILY!
         #assert vocab_length == self.vocab_size, "Logits's shape[1] should be tantamount to config.vocab_size"
 
-        mask = Tensor(np.zeros((batch_size,vocab_size)),dtype=mstype.float32)
+        mask = Tensor(np.zeros((batch_size, vocab_size)), dtype=mstype.float32)
         on_value = Tensor(1.0, mstype.float32)
         off_value = Tensor(0.0, mstype.float32)
 
         for batch_idx in range(batch_size):
             top_k_indices = indices[batch_idx][:k]
-            tmp_onehot = self.onehot(top_k_indices,vocab_size,on_value,off_value)
+            tmp_onehot = self.onehot(
+                top_k_indices, vocab_size, on_value, off_value)
             for top_k_indice in range(k):
                 real_index = int(indices[batch_idx][top_k_indice].asnumpy())
                 if top_k_indice != 0:
                     tmp_onehot[top_k_indice] *= 1.0
-                    tmp_onehot[0] += tmp_onehot[top_k_indice]*logits[batch_idx][real_index]
+                    tmp_onehot[0] += tmp_onehot[top_k_indice] * \
+                        logits[batch_idx][real_index]
                 else:
                     tmp_onehot[0] *= logits[batch_idx][real_index]
             mask[batch_idx] += tmp_onehot[0]
 
-
         return mask
-        
-
 
     """
     This is the deprecated top_k_logits() implementation, using numpy functions to convert mindspore.Tensor
     """
-    def _top_k_logits(self,logits, k):
 
-        assert logits.dim() == 2, "logits should be a mindspore.Tensor with shape [config.batch_size, config.vocab_size]."
+    def _top_k_logits(self, logits, k):
+
+        assert logits.dim(
+        ) == 2, "logits should be a mindspore.Tensor with shape [config.batch_size, config.vocab_size]."
 
         def _top_k():
 
@@ -121,7 +130,8 @@ class GPT2ForPredictNext(nn.Cell):
             batch_size = logits.shape[0]
             vocab_length = logits.shape[-1]
             assert batch_size == self.batch_size
-            #assert vocab_length == self.vocab_size
+            # quote here for test, TEMPORARILY!
+            #assert vocab_length == self.vocab_size, "Logits's shape[1] should be tantamount to config.vocab_size"
 
             top_k_logits_np = np.zeros([batch_size, vocab_length], dtype=float)
 
@@ -135,7 +145,8 @@ class GPT2ForPredictNext(nn.Cell):
                     if vocab_idx != indexes[batch_idx][topk_index]:
                         top_k_logits_np[batch_idx][vocab_idx] = 0.0
                     else:
-                        top_k_prob = float(logits[batch_idx][vocab_idx].asnumpy())
+                        top_k_prob = float(
+                            logits[batch_idx][vocab_idx].asnumpy())
                         top_k_logits_np[batch_idx][vocab_idx] = top_k_prob
                         topk_index += 1
 
@@ -147,54 +158,63 @@ class GPT2ForPredictNext(nn.Cell):
         else:
             return _top_k()
 
-    def top_p_logits(self,logits, p):
-        assert logits.dim() == 2, "logits should be a mindspore.Tensor with shape [config.batch_size, config.vocab_size]."
-        
+    """
+    Nucleus Sampling(a.k.a. top_p sampling) which filters out vocabs with probability over p. The probs of rest
+    vocabs are set with 0 in returned logits.
+    """
+
+    def top_p_logits(self, logits, p):
+        assert logits.dim(
+        ) == 2, "logits should be a mindspore.Tensor with shape [config.batch_size, config.vocab_size]."
+
         batch_size = logits.shape[0]
-        vocab_length = logits.shape[-1]
+        vocab_size = logits.shape[-1]
 
         assert batch_size == self.batch_size, "Logits's shape[0] should be tantamount to config.batch_size"
-        #assert vocab_length == self.vocab_size, "Logits's shape[1] should be tantamount to config.vocab_size"
+        # quote here for test, TEMPORARILY!
+        #assert vocab_size == self.vocab_size, "Logits's shape[1] should be tantamount to config.vocab_size"
 
         top_k = P.TopK(sorted=True)
-        values,indexes = top_k(logits,vocab_length)
-        
-        cumsum = P.CumSum()
-        sum_values = cumsum(values,1)
+        values, indices = top_k(logits, vocab_size)
 
-        top_p_logits = self.get_top_p_onehot_mask(logits,sum_values,indexes,p)
+        cumsum = P.CumSum()
+        cumsum_logits = cumsum(values, 1)
+
+        def _get_top_p_onehot_mask():
+            #batch_size = cumsum_logits.shape[0]
+            #vocab_size = cumsum_logits.shape[1]
+
+            mask = Tensor(np.zeros((batch_size, vocab_size)),
+                          dtype=mstype.float32)
+            on_value = Tensor(1.0, mstype.float32)
+            off_value = Tensor(0.0, mstype.float32)
+
+            for batch_idx in range(batch_size):
+                cumsum = cumsum_logits[batch_idx].asnumpy()
+
+                # to prevent loss of float calculation
+                top_p_pos = int(np.searchsorted(cumsum, p-1e6))
+
+                top_p_index = indices[batch_idx][0:top_p_pos+1]
+                tmp_onehot = self.onehot(
+                    top_p_index, vocab_size, on_value, off_value)
+                for top_num in range(top_p_pos+1):
+                    real_index = int(indices[batch_idx][top_num].asnumpy())
+                    if top_num != 0:
+                        tmp_onehot[top_num] *= 1.0
+                        tmp_onehot[0] += tmp_onehot[top_num] * \
+                            logits[batch_idx][real_index]
+                    else:
+                        tmp_onehot[0] *= logits[batch_idx][real_index]
+                mask[batch_idx] += tmp_onehot[0]
+            return mask
+
+        top_p_logits = _get_top_p_onehot_mask()
 
         return top_p_logits
-        
-    def get_top_p_logits(self,logits,cumsum_logits,indices,p):
+
+    def get_top_p_logits(self, logits, cumsum_logits, indices, p):
         raise NotImplementedError
-
-    def get_top_p_onehot_mask(self,logits,cumsum_logits,indices,p):
-        batch_size = cumsum_logits.shape[0]
-        vocab_size = cumsum_logits.shape[1]
-
-        mask = Tensor(np.zeros((batch_size,vocab_size)),dtype=mstype.float32)
-        on_value = Tensor(1.0, mstype.float32)
-        off_value = Tensor(0.0, mstype.float32)
-        
-        for batch_idx in range(batch_size):
-            cumsum = cumsum_logits[batch_idx].asnumpy()
-            
-            #to prevent loss of float calculation
-            top_p_pos = int(np.searchsorted(cumsum,p-1e6))
-            
-            top_p_index = indices[batch_idx][0:top_p_pos+1]
-            tmp_onehot = self.onehot(top_p_index,vocab_size,on_value,off_value)
-            for top_num in range(top_p_pos+1):
-                real_index = int(indices[batch_idx][top_num].asnumpy())
-                if top_num != 0:
-                    tmp_onehot[top_num] *= 1.0
-                    tmp_onehot[0] += tmp_onehot[top_num]*logits[batch_idx][real_index]
-                else:
-                    tmp_onehot[0] *= logits[batch_idx][real_index]
-            mask[batch_idx] += tmp_onehot[0]
-        return mask
-            
 
     def get_output_embeddings(self):
         return self.lm_head
@@ -212,7 +232,7 @@ class GPT2ForPredictNext(nn.Cell):
         input_mask=None,
         # position_ids = None
         # input_embeddings = None
-        labels=None
+        # labels=None
     ):
 
         transformer_outputs = self.transformer(
@@ -230,19 +250,19 @@ class GPT2ForPredictNext(nn.Cell):
         lm_logits = self.reshape(lm_logits, (batch_size, sequence_length, -1))
 
         loss = None
-        if labels is not None:
 
-            pre_lm_logits = lm_logits[:batch_size, :sequence_length-1, ...]
+        # pre_lm_logits = lm_logits[:batch_size, :sequence_length-1, ...]
 
-            shift_squeezed_logits = self.reshape(
-                pre_lm_logits, (-1, pre_lm_logits.shape[-1]))
-            shift_squeezed_labels = self.reshape(labels[..., 1:], (-1,))
+        # shift_squeezed_logits = self.reshape(
+        #     pre_lm_logits, (-1, pre_lm_logits.shape[-1]))
+        # shift_squeezed_labels = self.reshape(labels[..., 1:], (-1,))
 
-            loss = self.loss_function(
-                shift_squeezed_logits, shift_squeezed_labels)
+        # loss = self.loss_function(shift_squeezed_logits, shift_squeezed_labels)
 
-        output = (lm_logits,) + transformer_outputs[1:]
-        return (output, loss) if loss is not None else (output,)
+        # output = (lm_logits,) + transformer_outputs[1:]
+
+        return lm_logits
+        # return (output, loss) if loss is not None else (output,)
 
 
 def top_k_sample(logits, top_k=2):
@@ -284,3 +304,155 @@ def top_k_sample(logits, top_k=2):
     return final_tokens_tensor
 
 
+"""
+    top_k_logits(): top_k sampling, which filters out the top-k vocabs with the highest probability. The rest ones
+    are set by 0 in this function's returned logits. 
+"""
+
+
+def top_k_logits(logits, k):
+    assert logits.dim(
+    ) == 2, "logits should be a mindspore.Tensor with shape [config.batch_size, config.vocab_size]."
+
+    if k == 0:
+        return logits
+
+    topk = P.TopK(sorted=True)
+    logits_sorted, indices = topk(logits, k)
+
+    batch_size = logits.shape[0]
+    vocab_size = logits.shape[-1]
+    onehot = P.OneHot()
+    #assert batch_size == self.batch_size, "Logits's shape[0] should be tantamount to config.batch_size"
+    # quote here for test, TEMPORARILY!
+    #assert vocab_length == self.vocab_size, "Logits's shape[1] should be tantamount to config.vocab_size"
+
+    mask = Tensor(np.zeros((batch_size, vocab_size)), dtype=mstype.float32)
+    on_value = Tensor(1.0, mstype.float32)
+    off_value = Tensor(0.0, mstype.float32)
+
+    for batch_idx in range(batch_size):
+        top_k_indices = indices[batch_idx][:k]
+        tmp_onehot = onehot(
+            top_k_indices, vocab_size, on_value, off_value)
+        for top_k_indice in range(k):
+            real_index = int(indices[batch_idx][top_k_indice].asnumpy())
+            if top_k_indice != 0:
+                tmp_onehot[top_k_indice] *= 1.0
+                tmp_onehot[0] += tmp_onehot[top_k_indice] * \
+                    logits[batch_idx][real_index]
+            else:
+                tmp_onehot[0] *= logits[batch_idx][real_index]
+        mask[batch_idx] += tmp_onehot[0]
+
+    return mask
+
+
+"""
+    Nucleus Sampling(a.k.a. top_p sampling) which filters out vocabs with probability over p. The probs of rest
+    vocabs are set with 0 in returned logits.
+"""
+
+
+def top_p_logits(logits, p):
+    assert logits.dim(
+    ) == 2, "logits should be a mindspore.Tensor with shape [config.batch_size, config.vocab_size]."
+    if p == 1.0:
+        return logits
+    batch_size = logits.shape[0]
+    vocab_size = logits.shape[-1]
+
+    #assert batch_size == self.batch_size, "Logits's shape[0] should be tantamount to config.batch_size"
+    # quote here for test, TEMPORARILY!
+    #assert vocab_size == self.vocab_size, "Logits's shape[1] should be tantamount to config.vocab_size"
+
+    top_k = P.TopK(sorted=True)
+    values, indices = top_k(logits, vocab_size)
+
+    cumsum = P.CumSum()
+    cumsum_logits = cumsum(values, 1)
+
+    def _get_top_p_onehot_mask():
+        mask = Tensor(np.zeros((batch_size, vocab_size)), dtype=mstype.float32)
+        on_value = Tensor(1.0, mstype.float32)
+        off_value = Tensor(0.0, mstype.float32)
+        onehot = P.OneHot()
+
+        for batch_idx in range(batch_size):
+            cumsum = cumsum_logits[batch_idx].asnumpy()
+
+            # to prevent loss of float calculation
+            top_p_pos = int(np.searchsorted(cumsum, p-1e6))
+
+            top_p_index = indices[batch_idx][0:top_p_pos+1]
+            tmp_onehot = onehot(
+                top_p_index, vocab_size, on_value, off_value)
+            for top_num in range(top_p_pos+1):
+                real_index = int(indices[batch_idx][top_num].asnumpy())
+                if top_num != 0:
+                    tmp_onehot[top_num] *= 1.0
+                    tmp_onehot[0] += tmp_onehot[top_num] * \
+                        logits[batch_idx][real_index]
+                else:
+                    tmp_onehot[0] *= logits[batch_idx][real_index]
+            mask[batch_idx] += tmp_onehot[0]
+        return mask
+
+    top_p_logits = _get_top_p_onehot_mask()
+
+    return top_p_logits
+
+
+def sample_sequences(model, length, start_token=None, context=None, temperature=1.0, topk=0, top_p=1.0):
+    if start_token is None:
+        assert context is not None, "start-token and context can not be None at the same time!"
+    # else:
+    #     assert context is not None, "If context is None, context will be set with start_token!"
+    #     fill = P.Fill()
+    #     context = fill(mstype.int32, (model.batch_size, 1), start_token)
+    batch_size = model.batch_size
+    seq_length = model.seq_length
+    vocab_size = model.vocab_size
+    for iteration in range(length):
+        tmp_mask = Tensor(
+        np.ones((batch_size, seq_length)), dtype=mstype.int32)
+
+        last_vocab_prob = model(context, tmp_mask)[:, -1, :vocab_size]
+        # print(last_vocab_prob,last_vocab_prob.shape)
+        last_vocab_prob /= float(temperature)
+        last_vocab_prob = top_k_logits(last_vocab_prob, topk)
+        #softmax = P.Softmax(axis = -1)
+        #last_vocab_prob = softmax(last_vocab_prob)
+        last_vocab_prob = top_p_logits(last_vocab_prob, top_p)
+        multinomial = P.Multinomial(seed=0)
+        generate_vocab_id = multinomial(last_vocab_prob,1)
+
+        
+        #concat generate_vocab_id to last idx of context
+        # on_value = Tensor(1.0, mstype.float32)
+        # off_value = Tensor(0.0, mstype.float32)
+        # onehot = P.OneHot()
+        # first_index = Tensor(np.array([seq_length-1,seq_length-1]),dtype = mstype.int32)
+        # mask_for_first_token = onehot(first_index,seq_length,off_value,on_value)
+        # context *= mask_for_first_token
+        # onehot_for_first_token = onehot(first_index,seq_length,on_value,off_value)
+
+        
+        # for batch_idx in range(batch_size):
+        #     onehot_for_first_token[batch_idx] *= generate_vocab_id[batch_idx]
+        
+        # context += onehot_for_first_token
+        # cast = P.Cast()
+        # context = cast(context,mstype.int32)
+        # #print(context)
+        cast = P.Cast()
+        generate_vocab_id = cast(generate_vocab_id,mstype.int32)
+        return generate_vocab_id
+
+    return
+
+
+
+    
+
+    
