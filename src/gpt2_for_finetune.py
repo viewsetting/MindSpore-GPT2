@@ -8,7 +8,7 @@ import mindspore.common.dtype as mstype
 from mindspore import context
 from .GPT2ForLanguageModel import GPT2LanguageModel
 from .GPT2ForReadComprehension import GPT2CoQAModel
-
+from .GPT2ForSummarization import GPT2ForPredictNext
 
 class GPT2LM(nn.Cell):
     def __init__(self, config, is_training, use_one_hot_embeddings=False):
@@ -56,3 +56,15 @@ class GPT2CoQA(nn.Cell):
             logits = self.log_softmax(output)
             loss = logits * 1.0
         return loss
+
+class GPT2Summarization(nn.Cell):
+    def __init__(self, config, is_training, use_one_hot_embeddings=False):
+        super(GPT2ForSummarization, self).__init__()
+        self.gpt2 = GPT2ForPredictNext(config, is_training, use_one_hot_embeddings)
+        self.loss = None
+        self.is_training = is_training
+        self.last_idx = (-1,)
+    def construct(self):
+        pass
+
+
