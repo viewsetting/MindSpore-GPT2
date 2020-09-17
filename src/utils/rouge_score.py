@@ -18,14 +18,8 @@ def rouge(hypothesis: List[str], target: List[str]):
     if not hypothesis or not target:
         raise ValueError(f"`hypothesis` and `target` can not be None.")
 
-    edited_hyp = []
-    edited_ref = []
-    for h, r in zip(hypothesis, target):
-        edited_hyp.append(h)
-        edited_ref.append(r)
-
     _rouge = Rouge()
-    scores = _rouge.get_scores(edited_hyp, edited_ref, avg=True)
+    scores = _rouge.get_scores(hypothesis, target, avg=True)
     print(" | ROUGE Score:")
     print(f" | RG-1(F): {scores['rouge-1']['f'] * 100:8.2f}")
     print(f" | RG-2(F): {scores['rouge-2']['f'] * 100:8.2f}")
