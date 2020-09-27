@@ -9,6 +9,7 @@ from mindspore import context
 from .GPT2ForLanguageModel import GPT2LanguageModel
 from .GPT2ForReadComprehension import GPT2CoQAModel
 from .GPT2ForSummarization import GPT2ForPredictNext
+from src.utils.CrossEntropy import CrossEntropyCalculation
 
 class GPT2LM(nn.Cell):
     def __init__(self, config, is_training, use_one_hot_embeddings=False):
@@ -61,10 +62,24 @@ class GPT2Summarization(nn.Cell):
     def __init__(self, config, is_training, use_one_hot_embeddings=False):
         super(GPT2ForSummarization, self).__init__()
         self.gpt2 = GPT2ForPredictNext(config, is_training, use_one_hot_embeddings)
-        self.loss = None
         self.is_training = is_training
         self.last_idx = (-1,)
-    def construct(self):
-        pass
+        self.log_softmax = P.LogSoftmax(axis=-1)
+        self.reshape = P.Reshape()
+        self.shape = P.Shape()
+        self.loss_function = CrossEntropyCalculation(is_training=self.is_training)
+    def construct(self, input_ids,input_mask):
+        output = self.gpt2(input_ids,input_mask)
+
+        pre_lm_logits = lm_logits[:batch_size, :sequence_length-1, ...]
+
+        shift_squeezed_logits = self.reshape(
+            pre_lm_logits, (-1, pre_lm_logits.shape[-1]))
+        shift_squeezed_labels = self.reshape(labels[..., 1:], (-1,))
+
+        loss = self.loss_function(shift_squeezed_logits, shift_squeezed_labels)
+
+
+        return loss
 
 
