@@ -6,7 +6,7 @@ from rouge import Rouge
 # R_PATH = "references.txt"
 
 
-def rouge(hypothesis: List[str], target: List[str]):
+def get_rouge_score(hypothesis: List[str], target: List[str]):
     """
     Calculate ROUGE score.
 
@@ -30,3 +30,4 @@ def rouge(hypothesis: List[str], target: List[str]):
 
     # with open(R_PATH, "w") as f:
     #     f.writelines(edited_ref)
+    return scores
