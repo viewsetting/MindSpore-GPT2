@@ -4,7 +4,7 @@ from mindspore import Tensor
 from mindspore.common import dtype as mstype
 from mindspore.ops import operations as P
 from mindspore.common.initializer import Normal
-from utils.CrossEntropy import CrossEntropyCalculation
+from src.utils.CrossEntropy import CrossEntropyCalculation
 from scipy.special import softmax
 import numpy as np
 
@@ -26,8 +26,9 @@ class GPT2ForPredictNext(nn.Cell):
         # self.loss_function = nn.SoftmaxCrossEntropyWithLogits(sparse = True)
 
         # modified loss_function from modelzoo/official/nlp/bert/src/utils.py
-        self.loss_function = CrossEntropyCalculation(
+        '''self.loss_function = CrossEntropyCalculation(
             is_training = is_training)
+        '''
         self.reshape = P.Reshape()
         self.softmax = nn.Softmax(axis=-1)
         self.batch_size = config.batch_size
