@@ -14,3 +14,22 @@ from mindspore.common.tensor import Tensor
 from mindspore.train.model import Model
 from mindspore.train.callback import CheckpointConfig, ModelCheckpoint, TimeMonitor, LossMonitor
 from mindspore.train.serialization import load_checkpoint, load_param_into_net
+
+def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoint_path="", epoch_num=1):
+    if load_checkpoint_path == "":
+        raise ValueError("Pretrain model missed, finetune task must load pretrain model!")
+
+    raise NotImplementedError
+
+def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path=""):
+    raise NotImplementedError
+
+def run_summarization():
+    '''
+
+    '''
+    raise NotImplementedError
+
+
+if __name__ == "__main__":
+    run_summarization()
