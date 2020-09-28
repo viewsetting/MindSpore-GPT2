@@ -1,7 +1,7 @@
 import mindspore.nn as nn
-from mindspore.ops import operation as P
 from .GPT2_model import GPT2Model
 from .weight_init import weight_variable
+from mindspore.ops import operations as P
 
 class GPT2LanguageModel(nn.Cell):
     def __init__(self, config, is_training, use_one_hot_embeddings=False):
