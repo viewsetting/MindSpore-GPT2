@@ -4,7 +4,7 @@ from mindspore import Tensor
 from mindspore.common import dtype as mstype
 from mindspore.ops import operations as P
 from mindspore.common.initializer import Normal
-from src.utils.CrossEntropy import CrossEntropyCalculation
+from utils.CrossEntropy import CrossEntropyCalculation
 from scipy.special import softmax
 import numpy as np
 
