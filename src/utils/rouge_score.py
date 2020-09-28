@@ -31,3 +31,9 @@ def get_rouge_score(hypothesis: List[str], target: List[str]):
     # with open(R_PATH, "w") as f:
     #     f.writelines(edited_ref)
     return scores
+
+# if __name__ == "__main__":
+#     s1 = ["This is a cat","809890"]
+#     s2 = ["This is a dog.","I am Iron Man!"]
+#     print("----")
+#     print(get_rouge_score(s1,s2)['rouge-1']['r']*100)

@@ -12,12 +12,13 @@ from mindspore import context
 from mindspore import ParallelMode
 # from mindspore.communication.management import get_group_size
 from mindspore.parallel._utils import _get_device_num, _get_parallel_mode
-
-from .GPT2ForLanguageModel import GPT2LanguageModel
-from src.utils.CrossEntropy import CrossEntropyCalculation
 from .GPT2ForLambada import GPT2LambadaModel
 from .GPT2ForCBT import GPT2CBTModel
 from .GPT2ForTranslation import GPT2TranslationModel
+from .GPT2ForLanguageModel import GPT2LanguageModel
+from .GPT2ForReadComprehension import GPT2CoQAModel
+from .GPT2ForSummarization import GPT2ForPredictNext
+from src.utils.CrossEntropy import CrossEntropyCalculation
 
 GRADIENT_CLIP_TYPE = 1
 GRADIENT_CLIP_VALUE = 1.0
@@ -30,12 +31,10 @@ clip_grad = C.MultitypeFuncGraph("clip_grad")
 def _clip_grad(clip_type, clip_value, grad):
     """
     Clip gradients.
-
     Inputs:
         clip_type (int): The way to clip, 0 for 'value', 1 for 'norm'.
         clip_value (float): Specifies how much to clip.
         grad (tuple[Tensor]): Gradients.
-
     Outputs:
         tuple[Tensor], clipped gradients.
     """
@@ -119,13 +118,11 @@ class GPT2FinetuneCell(nn.Cell):
         """
         GPT-2 Finetune.
         Construct network.
-
         Args:
             input_ids (Tensor): Source sentence.
             input_mask (Tensor): Source padding mask.
             label_ids (Tensor): Target sentence.
             sens (Tensor): Loss sen.
-
         Returns:
             Tuple[Tensor, Tensor, Tensor], loss, overflow, sen.
         """
@@ -292,3 +289,50 @@ class GPT2Translation(nn.Cell):
 
         loss = self.loss(shift_logits, label_ids, self.num_labels)
         return self.cast(loss, mstype.float32)
+
+
+class GPT2CoQA(nn.Cell):
+    def __init__(self, config, is_training, use_one_hot_embeddings=False):
+        super(GPT2CoQA, self).__init__()
+        self.gpt2 = GPT2CoQAModel(config, is_training, use_one_hot_embeddings)
+        self.loss = nn.SoftmaxCrossEntropyWithLogits(is_grad=False, sparse=True)
+        self.is_training = is_training
+        self.log_softmax = P.LogSoftmax(axis=-1)
+        self.last_idx = (-1,)
+
+    def construct(self, input_ids, input_mask, label_ids):
+        output = self.gpt2(input_ids, input_mask)
+        output_shape = P.Shape()(output)
+        output = P.Reshape()(output, (-1, output_shape[-1]))
+
+        if self.is_training:
+            label_ids = P.Reshape()(label_ids, self.last_idx)
+            loss = self.loss(output, label_ids)
+        else:
+            logits = self.log_softmax(output)
+            loss = logits * 1.0
+        return loss
+
+class GPT2Summarization(nn.Cell):
+    def __init__(self, config, is_training, use_one_hot_embeddings=False):
+        super(GPT2ForSummarization, self).__init__()
+        self.gpt2 = GPT2ForPredictNext(config, is_training, use_one_hot_embeddings)
+        self.is_training = is_training
+        self.last_idx = (-1,)
+        self.log_softmax = P.LogSoftmax(axis=-1)
+        self.reshape = P.Reshape()
+        self.shape = P.Shape()
+        self.loss_function = CrossEntropyCalculation(is_training=self.is_training)
+    def construct(self, input_ids,input_mask):
+        output = self.gpt2(input_ids,input_mask)
+
+        pre_lm_logits = lm_logits[:batch_size, :sequence_length-1, ...]
+
+        shift_squeezed_logits = self.reshape(
+            pre_lm_logits, (-1, pre_lm_logits.shape[-1]))
+        shift_squeezed_labels = self.reshape(labels[..., 1:], (-1,))
+
+        loss = self.loss_function(shift_squeezed_logits, shift_squeezed_labels)
+
+
+        return loss
