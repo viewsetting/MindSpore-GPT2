@@ -4,49 +4,9 @@ from mindspore import Tensor
 from mindspore.common import dtype as mstype
 from mindspore.ops import operations as P
 from mindspore.common.initializer import Normal
+from src.utils.CrossEntropy import CrossEntropyCalculation
 from scipy.special import softmax
 import numpy as np
-
-
-class CrossEntropyCalculation(nn.Cell):
-    """
-    Cross Entropy loss
-    modified from  /mindspore/model_zoo/official/nlp/bert/src/utils.py
-
-    Args:
-        num_labels: number of labels (int), depth of operations.OneHot()
-        is_training: True for training procedure, False for evaluation.
-
-    Return:
-        loss: Average Cross Entrophy of a squeezed logits tensor when training, else logits it self.
-    """
-
-    def __init__(self, num_labels, is_training=True):
-        super(CrossEntropyCalculation, self).__init__()
-        self.onehot = P.OneHot()
-        self.on_value = Tensor(1.0, mstype.float32)
-        self.off_value = Tensor(0.0, mstype.float32)
-        self.reduce_sum = P.ReduceSum()
-        self.reduce_mean = P.ReduceMean()
-        self.reshape = P.Reshape()
-        self.last_idx = (-1,)
-        self.neg = P.Neg()
-        self.cast = P.Cast()
-        self.is_training = is_training
-        self.num_labels = num_labels
-
-    def construct(self, logits, label_ids):
-        if self.is_training:
-            label_ids = self.reshape(label_ids, self.last_idx)
-            one_hot_labels = self.onehot(
-                label_ids, self.num_labels, self.on_value, self.off_value)
-            per_example_loss = self.neg(self.reduce_sum(
-                one_hot_labels * logits, self.last_idx))
-            loss = self.reduce_mean(per_example_loss, self.last_idx)
-            return_value = self.cast(loss, mstype.float32)
-        else:
-            return_value = logits * 1.0
-        return return_value
 
 
 class GPT2ForPredictNext(nn.Cell):
@@ -66,8 +26,9 @@ class GPT2ForPredictNext(nn.Cell):
         # self.loss_function = nn.SoftmaxCrossEntropyWithLogits(sparse = True)
 
         # modified loss_function from modelzoo/official/nlp/bert/src/utils.py
-        self.loss_function = CrossEntropyCalculation(
-            config.vocab_size, is_training=True)
+        '''self.loss_function = CrossEntropyCalculation(
+            is_training = is_training)
+        '''
         self.reshape = P.Reshape()
         self.softmax = nn.Softmax(axis=-1)
         self.batch_size = config.batch_size
