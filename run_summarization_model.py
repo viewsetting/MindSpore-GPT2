@@ -16,8 +16,19 @@ from mindspore.train.callback import CheckpointConfig, ModelCheckpoint, TimeMoni
 from mindspore.train.serialization import load_checkpoint, load_param_into_net
 
 def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoint_path="", epoch_num=1):
+    """
+    Do train
+    Args:
+        dataset: the train dataset.
+        network:  the network with loss
+        load_checkpoint_path: the file path which saved pretrain model checkpoint.
+        save_checkpoint_path:  the file path which will save finetune model checkpoint.
+        epoch_num: the number of epoch
+    """
     if load_checkpoint_path == "":
         raise ValueError("Pretrain model missed, finetune task must load pretrain model!")
+    
+    steps_per_epoch = dataset.get_dataset_size() # samples / batch_size  doing####
 
     raise NotImplementedError
 
