@@ -82,20 +82,12 @@ class Rouge():
         self.Rouge1 = -1.0
         self.Rouge2 = -1.0
         self.RougeL = -1.0
-        self.Rouge1P = -1.0
-        self.Rouge2P = -1.0
-        self.RougeLP = -1.0
-        self.Rouge1R = -1.0
-        self.Rouge2R = -1.0
-        self.RougeLR = -1.0
+        self.total_num = 0
+        
     def update(self,hypothesis,targets):
         scores = get_rouge_score(hypothesis,targets)
-        self.Rouge1 = scores['rouge-1']['f']*100
-        self.Rouge2 = scores['rouge-2']['f']*100
-        self.RougeL = scores['rouge-l']['f']*100
-        self.Rouge1P = scores['rouge-1']['p']*100
-        self.Rouge2P = scores['rouge-2']['p']*100
-        self.RougeLP = scores['rouge-l']['p']*100
-        self.Rouge1R = scores['rouge-1']['r']*100
-        self.Rouge2R = scores['rouge-2']['r']*100
-        self.RougeLR = scores['rouge-l']['r']*100
+        self.Rouge1 += scores['rouge-1']['f']*100
+        self.Rouge2 += scores['rouge-2']['f']*100
+        self.RougeL += scores['rouge-l']['f']*100
+        total_num += 1
+        
