@@ -1,15 +1,19 @@
 import os
 import argparse
-from src.gpt2_for_finetune import GPT2Summarization
+import math
+import mindspore
+from src.gpt2_for_finetune import GPT2Summarization,GPT2FinetuneCell
 from src.finetune_eval_config import cfg, gpt2_net_cfg
 from src.utils.metric_method import Rouge
 from mindspore.nn import Accuracy
-from src.dataset import lm_train_dataset, lm_eval_dataset
+from src.dataset import create_cnn_dailymail_dataset
 from src.utils.lr_schedule import GPT2LearningRate
+from src.utils.losscallback import LossCallBack
 import mindspore.common.dtype as mstype
 from mindspore import context
 from mindspore import log as logger
 from mindspore.nn import AdamWeightDecay, Lamb, Momentum
+from mindspore.nn.wrap.loss_scale import DynamicLossScaleUpdateCell
 from mindspore.common.tensor import Tensor
 from mindspore.train.model import Model
 from mindspore.train.callback import CheckpointConfig, ModelCheckpoint, TimeMonitor, LossMonitor
@@ -71,9 +75,9 @@ def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoin
 
     model = Model(netwithgrads)
     callbacks = [TimeMonitor(dataset.get_dataset_size()), LossCallBack(dataset.get_dataset_size()), ckpoint_cb]
-    print("============== Starting Training ==============")
+    print("============== Starting Training For Summrization Task ==============")
     model.train(epoch_num, dataset, callbacks=callbacks)
-    print("============== Training Success ==============")
+    print("============== Summrization Training Success ==============")
 
 
 def eval_result_print(metric="Rouge", callback=None):
@@ -82,7 +86,7 @@ def eval_result_print(metric="Rouge", callback=None):
         print("Rouge-1 {:.8f}, Rouge-2 {:.8f}, Rouge-L {:.8f}".format(callback.Rouge1/callback.total_num, callback.Rouge2/callback.total_num,
                                                                  callback.RougeL / callback.total_num))
     else:
-        raise ValueError("metric method not supported, support: [accuracy]")
+        raise ValueError("metric method '{}' not supported, support: [Rouge]. ".format(str(metric)))
 
 
 def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path=""):
@@ -97,7 +101,7 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path=""):
     if load_checkpoint_path == "":
         raise ValueError("Finetune model missed, evaluation task must load finetune model!")
     if metric.lower() == "rouge":
-        print("Prepare to calculate the accuracy score ...")
+        print("Prepare to calculate the Rouge score ...")
         callback = Rouge()
         gpt2_loss = network(config=gpt2_net_cfg,
                             is_training=False,
@@ -119,14 +123,14 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path=""):
             label_ids = Tensor(label_ids, mindspore.int32)
             print("input_ids shape: {}".format(input_ids.shape))
             print("label_ids shape: {}".format(label_ids.shape))
-            print("============= Testing =============")
+            print("============= Summrization Testing =============")
             logits = model.predict(input_ids, input_mask, label_ids)
             print("logits shape: {}".format(logits.shape))
             callback.update(logits, label_ids)
         print("==============================================")
         eval_result_print(metric, callback)
         print("==============================================")
-        print("************** Testing Finished **************")
+        print("************** Summarization Testing Finished **************")
     
     else:
         raise ValueError("metric method not supported in summarization, support: [Rouge]")

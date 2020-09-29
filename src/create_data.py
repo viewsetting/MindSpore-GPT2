@@ -10,7 +10,16 @@ from src.utils import tokenization
 from mindspore.mindrecord import FileWriter
 
 """
+WikiText:
 python create_data.py --input_file /data/tju/new_wiki.test.txt --output_file /data/tju/src/mindspore-dataset/wikitext2-test-mindrecord --num_splits 1 --max_seq_length 1024
+
+CNN_DailyMail 3.0.0:
+
+import test set:
+python create_data.py --input_file /data/tju/cnn_dailymail_test.txt --output_file /data/tju/src/mindspore-dataset/cnn_dailymail-test-mindrecord --num_splits 1 --max_seq_length 1024
+
+import training set:
+python create_data.py --input_file /data/tju/cnn_dailymail_train.txt --output_file /data/tju/src/mindspore-dataset/cnn_dailymail-train-mindrecord --num_splits 1 --max_seq_length 1024
 
 """
 
