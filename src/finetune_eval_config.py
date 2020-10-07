@@ -45,7 +45,7 @@ if cfg.gpt2_network == 'small':
         initializer_range=0.02,
         input_mask_from_dataset=True,
         dtype=mstype.float32,
-        compute_type=mstype.float16,
+        compute_type=mstype.float32,
     )
 if cfg.gpt2_network == 'medium':
     gpt2_net_cfg = GPT2Config(
@@ -63,7 +63,7 @@ if cfg.gpt2_network == 'medium':
         initializer_range=0.02,
         input_mask_from_dataset=True,
         dtype=mstype.float32,
-        compute_type=mstype.float16,
+        compute_type=mstype.float32,
     )
 if cfg.gpt2_network == 'large':
     gpt2_net_cfg = GPT2Config(
@@ -81,5 +81,5 @@ if cfg.gpt2_network == 'large':
         initializer_range=0.02,
         input_mask_from_dataset=True,
         dtype=mstype.float32,
-        compute_type=mstype.float16,
+        compute_type=mstype.float32,
     )

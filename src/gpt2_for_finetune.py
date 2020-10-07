@@ -9,14 +9,14 @@ from mindspore.common.parameter import Parameter
 import mindspore.common.dtype as mstype
 from mindspore.nn.wrap.grad_reducer import DistributedGradReducer
 from mindspore import context
-from mindspore import ParallelMode
+from mindspore.context import ParallelMode
 # from mindspore.communication.management import get_group_size
 from mindspore.parallel._utils import _get_device_num, _get_parallel_mode
-from .GPT2ForLambada import GPT2LambadaModel
-from .GPT2ForCBT import GPT2CBTModel
-from .GPT2ForTranslation import GPT2TranslationModel
-from .GPT2ForLanguageModel import GPT2LanguageModel
-from .GPT2ForReadComprehension import GPT2CoQAModel
+#from .GPT2ForLambada import GPT2LambadaModel
+#from .GPT2ForCBT import GPT2CBTModel
+#from .GPT2ForTranslation import GPT2TranslationModel
+#from .GPT2ForLanguageModel import GPT2LanguageModel
+#from .GPT2ForReadComprehension import GPT2CoQAModel
 from .GPT2ForSummarization import GPT2ForPredictNext
 from src.utils.CrossEntropy import CrossEntropyCalculation
 
@@ -73,7 +73,7 @@ class GPT2FinetuneCell(nn.Cell):
         self.network.set_grad()
         self.weights = optimizer.parameters
         self.optimizer = optimizer
-        self.grad = C.GradOperation('grad', get_by_list=True, sens_param=True)
+        self.grad = C.GradOperation(True, get_by_list=True, sens_param=True)
         self.reducer_flag = False
         self.allreduce = P.AllReduce()
         self.parallel_mode = context.get_auto_parallel_context("parallel_mode")
@@ -159,10 +159,12 @@ class GPT2FinetuneCell(nn.Cell):
             F.control_depend(grads, flag)
             F.control_depend(flag, flag_sum)
         else:
+           # print("====\n",type(grads),"=====\n")
             flag_sum = self.hyper_map(F.partial(_grad_overflow), grads)
             flag_sum = self.addn(flag_sum)
-            # convert flag_num to scalar
+            #convert flag_num to scalar
             flag_sum = self.reshape(flag_sum, (()))
+            #flag_sum = 1
         if self.is_distributed:
             flag_reduce = self.allreduce(flag_sum)
             cond = self.less_equal(self.base, flag_reduce)
@@ -324,7 +326,8 @@ class GPT2Summarization(nn.Cell):
         self.shape = P.Shape()
         self.batch_size = config.batch_size
         self.seq_length = config.seq_length
-        self.loss_function = CrossEntropyCalculation(is_training=self.is_training)
+        self.cast = P.Cast()
+        self.loss_function = CrossEntropyCalculation(num_labels=config.vocab_size,is_training=self.is_training)
     def construct(self, input_ids,input_mask,label_ids):
         output = self.gpt2(input_ids,input_mask)
 
@@ -335,4 +338,4 @@ class GPT2Summarization(nn.Cell):
         shift_squeezed_labels = self.reshape(label_ids[::, 1:], (-1,))
 
         loss = self.loss_function(shift_squeezed_logits, shift_squeezed_labels)
-        return loss
+        return self.cast(loss, mstype.float32)

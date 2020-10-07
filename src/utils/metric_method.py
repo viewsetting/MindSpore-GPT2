@@ -1,6 +1,6 @@
 import math
 import numpy as np
-from rouge_score import get_rouge_score
+from .rouge_score import get_rouge_score
 class Accuracy():
     """
     calculate accuracy

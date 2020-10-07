@@ -7,7 +7,7 @@ import mindspore.ops.functional as F
 from mindspore.ops import operations as P
 from mindspore.common.tensor import Tensor
 from mindspore.common.parameter import Parameter
-from weight_init import normal_weight, weight_variable, zero_weight
+from .weight_init import normal_weight, weight_variable, zero_weight
 
 class GPT2Config:
     """
