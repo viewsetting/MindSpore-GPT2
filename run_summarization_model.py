@@ -197,13 +197,13 @@ def run_summarization():
 
     if args_opt.do_train.lower() == "true":
         print("============== Start Loading Train Dataset ==============")
-        train_dataset = create_language_model_dataset(
+        train_dataset = create_cnn_dailymail_dataset(
             dataset_path="/data/tju/src/mindspore-dataset/cnn_dailymail-train-mindrecord")
         do_train(train_dataset, gpt2_loss, load_pretrain_ckpt_path, save_finetune_ckpt_path, epoch_num)
 
     if args_opt.do_eval.lower() == "true":
         print("============ Start Loading Evaluation Dataset ============")
-        eval_dataset = create_language_model_dataset(
+        eval_dataset = create_cnn_dailymail_dataset(
             dataset_path="/data/tju/src/mindspore-dataset/cnn_dailymail-test-mindrecord")
         do_eval(eval_dataset, GPT2Summarization, metric, load_finetune_ckpt_path)
 
