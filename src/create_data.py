@@ -69,7 +69,7 @@ def main():
     parser.add_argument("--max_seq_length", type=int, required=True, help='Maximum sequence length. ')
     args = parser.parse_args()
 
-    tokenizer = tokenization.Tokenizer()
+    tokenizer = tokenization.Tokenizer(vocab_file='/gpt2/src/utils/pretrain-data/gpt2-vocab.json',merge_file='/gpt2/src/utils/pretrain-data/gpt2-merges.txt')
     input_file = args.input_file
     logging.info("***** Reading from input files *****")
     logging.info("Input File: %s", input_file)
