@@ -6,7 +6,7 @@ import argparse
 import collections
 import logging
 import numpy as np
-from src.utils import tokenization
+from utils import tokenization
 from mindspore.mindrecord import FileWriter
 
 """
