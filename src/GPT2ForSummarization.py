@@ -35,6 +35,7 @@ class GPT2ForPredictNext(nn.Cell):
         self.vocab_size = config.vocab_size
         self.seq_length = config.seq_length
         self.onehot = P.OneHot()
+        self.print= P.Print()
 
     """
     top_k_logits(): top_k sampling, which filters out the top-k vocabs with the highest probability. The rest ones
@@ -207,6 +208,8 @@ class GPT2ForPredictNext(nn.Cell):
 
         hidden_state = self.reshape(hidden_state, (-1, hidden_state.shape[-1]))
         lm_logits = self.lm_head(hidden_state)
+        #print_ = P.Print()
+        #self.print('======\n','======\n')
         lm_logits = self.softmax(lm_logits)
         lm_logits = self.reshape(lm_logits, (batch_size, sequence_length, -1))
 
