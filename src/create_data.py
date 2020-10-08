@@ -67,9 +67,11 @@ def main():
     parser.add_argument("--num_splits", type=int, default=1,
                         help='The MindRecord file will be split into the number of partition. ')
     parser.add_argument("--max_seq_length", type=int, required=True, help='Maximum sequence length. ')
+    parser.add_argument("--vocab_file", type=str, required=False, help='url of gpt2-vocab.json ',default='./utils/pretrain-data/gpt2-vocab.json')
+    parser.add_argument("--merge_file", type=str, required=False, help='url of gpt2-merges.txt ',default='./utils/pretrain-data/gpt2-merges.txt')
     args = parser.parse_args()
 
-    tokenizer = tokenization.Tokenizer(vocab_file='/gpt2/src/utils/pretrain-data/gpt2-vocab.json',merge_file='/gpt2/src/utils/pretrain-data/gpt2-merges.txt')
+    tokenizer = tokenization.Tokenizer(vocab_file=args.vocab_file,merge_file=args.merge_file)
     input_file = args.input_file
     logging.info("***** Reading from input files *****")
     logging.info("Input File: %s", input_file)
