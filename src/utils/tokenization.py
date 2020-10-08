@@ -167,7 +167,7 @@ class GPT2Tokenizer():
     def _convert_tokens_to_string(self, tokens):
         """ return a string according to the list of tokens"""       
         text = "".join(tokens)
-        text = bytearray([self.byte_decoder[c] for c in text]).decode("utf-8")
+        text = bytearray([self.byte_decoder[c] for c in text]).decode("utf-8",errors='ignore')
         return text  
 
 

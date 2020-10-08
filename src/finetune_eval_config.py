@@ -31,7 +31,7 @@ three kinds of GPT2 model version
 """
 if cfg.gpt2_network == 'small':
     gpt2_net_cfg = GPT2Config(
-        batch_size=512,
+        batch_size=1,
         seq_length=1024,
         vocab_size=50257,
         d_model=768,
