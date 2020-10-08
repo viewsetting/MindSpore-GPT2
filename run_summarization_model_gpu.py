@@ -211,3 +211,6 @@ def run_summarization():
         do_eval(eval_dataset, GPT2ForPredictNext, metric, load_finetune_ckpt_path)
 
 
+
+if __name__ == "__main__":
+    run_summarization()
