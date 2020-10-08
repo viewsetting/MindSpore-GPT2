@@ -89,5 +89,5 @@ class Rouge():
         self.Rouge1 += scores['rouge-1']['f']*100
         self.Rouge2 += scores['rouge-2']['f']*100
         self.RougeL += scores['rouge-l']['f']*100
-        total_num += 1
+        self.total_num += 1
         
