@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 import argparse
 import math
@@ -19,6 +20,8 @@ from mindspore.common.tensor import Tensor
 from mindspore.train.model import Model
 from mindspore.train.callback import CheckpointConfig, ModelCheckpoint, TimeMonitor, LossMonitor
 from mindspore.train.serialization import load_checkpoint, load_param_into_net
+from src.utils.tokenization import Tokenizer
+from mindspore.ops import operations as P
 
 def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoint_path="", epoch_num=1):
     """
@@ -127,8 +130,9 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path=""):
             print("============= Summrization Testing =============")
             logits = model.predict(input_ids, input_mask)
             print("logits shape: {}".format(logits.shape))
-            str1="a a a test"
-            str2="b b b test"
+            str1,str2 = transfrom_to_text(input_ids,logits)
+            print("REF str:\n ",str1,"\nHYPO str:\n",str2,"\n")
+            print("LENGHTH: ",len(str1),"   and   ",len(str2),"\n")
             callback.update(str1, str2)
         print("==============================================")
         eval_result_print(metric, callback)
@@ -138,7 +142,54 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path=""):
     else:
         raise ValueError("metric method not supported in summarization, support: [Rouge]")
 
+def transfrom_to_text(input_ids,logits):
+    tokenizer = Tokenizer(vocab_file='./src/utils/pretrain-data/gpt2-vocab.json',merge_file='./src/utils/pretrain-data/gpt2-merges.txt')
+    eos_id = tokenizer.eos_token_id
+    
+    index,_ = P.ArgMaxWithValue(axis=-1)(logits)
+    squeeze = P.Reshape()
+    index = squeeze(index,(-1,))
+    index_np = index.asnumpy()
+    index_list = index_np.tolist()
+    index_len = len(index_list)
+    hyp_start = 0
+    hyp_end = index_len
+    for i in range(0,index_len):
+        if index_list[i] == eos_id:
+            while index_list[i] == eos_id:
+                i += 1
+            hyp_start = i
+            break
+    for i in range(hyp_start+1,index_len):
+        if index_list[i] == eos_id:
+            hyp_end = i
+            break
+    
 
+    
+
+    input_ids_ = squeeze(input_ids,(-1,))
+    ref_list = input_ids_.asnumpy()
+
+    ref_start = 0
+    ref_end = index_len
+
+    for i in range(1,index_len):
+        if ref_list[i] == eos_id:
+            while ref_list[i] == eos_id:
+                i += 1
+            ref_start = i
+            break
+    for i in range(ref_start+1,index_len):
+        if ref_list[i] == eos_id:
+            ref_end = i
+            break
+
+
+    ref_str = tokenizer.decode(ref_list[ref_start:ref_end])
+    hyp_str = tokenizer.decode(index_list[hyp_start:min(hyp_end,hyp_start+(ref_end-ref_start))])
+    
+    return ref_str,hyp_str
 
 def run_summarization():
     '''
