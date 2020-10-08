@@ -194,6 +194,12 @@ def generate_no_beam_search(
         attention_mask,
         use_cache,
 ):
+    raise NotImplementedError('not implemented yet')
     past = None
     while cur_len < max_length:
+        pass
+
+
+def generate_beam_search():
+    raise NotImplementedError   
         
