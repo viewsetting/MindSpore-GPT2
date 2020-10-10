@@ -205,7 +205,7 @@ def run_summarization():
                         help="The eval method including [Rouge(Rouge1,Rouge2,RougeL,Rouge Avg)]. Default: Rouge.") 
     parser.add_argument("--do_train", type=str, default="false",
                         help="Enable train. Default: false.")
-    parser.add_argument("--do_eval", type=str, default="true",
+    parser.add_argument("--do_eval", type=str, default="false",
                         help="Enable evaluation. Default: false.")
     parser.add_argument("--epoch_num", type=int, default=2,
                         help="Epoch number. Default: 1.")
