@@ -256,7 +256,7 @@ def generate_beam_search(
         init_beam_prob[:,1:] = -1e9
 
     # beam_scores in form of Tensor:
-    # beam_scores = Tensor(zeros,dtype=mstype.float32)
+    # beam_scores = Tensor(init_beam_prob,dtype=mstype.float32)
     # beam_scores = reshape(beam_scores,squeeze_shape)
 
     #Use numpy for now, since batch size is only 1
@@ -311,8 +311,7 @@ def generate_beam_search(
             for i in range(num_beams):
                 beam_scores[i] += values_np[i]
                 generated_ids[-1].append(candidates[i])
-                
-            
+                           
 
         else:
             # need to choose top beams^2 prob of token
@@ -349,9 +348,6 @@ def generate_beam_search(
             generated_ids[-1].append(candidates[i])
         
         input_ids_expand = Tensor(input_np,dtype = mstype.float32)
-
-
-
         
         cur_len += 1
         pass
