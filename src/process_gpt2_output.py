@@ -58,7 +58,7 @@ def generate(
                    speed up decoding. Default: True .
 
     Returns:
-        Tensor of shape (batch_size * num_return_sequences, seq_length)
+        List of shape (batch_size * num_return_sequences, seq_length)
         The generated sequences. The second dimension (sequence_length) is either equal to :obj:`max_length` or shorter
         if all batches finished early due to the :obj:`eos_token_id`.
 
@@ -356,7 +356,7 @@ def generate_beam_search(
     generated_ids_np = np.array(generated_ids).T
     token_ids = generated_ids_np.tolist()
 
-    return token_ids[0]
+    return token_ids
 
 
 def top_k_top_p_filtering(
