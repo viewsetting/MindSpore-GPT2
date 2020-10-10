@@ -17,7 +17,7 @@ class GPT2ForPredictNext(nn.Cell):
 
     def __init__(self, config, is_training=True, use_one_hot_embeddings=False):
         super(GPT2ForPredictNext, self).__init__()
-        self.transformer = GPT2Model(
+        self.gpt2 = GPT2Model(
             config, is_training, use_one_hot_embeddings)
         self.lm_head = nn.Dense(config.d_model, config.vocab_size, has_bias=False,
                                 weight_init=Normal(sigma=config.initializer_range))
@@ -197,7 +197,7 @@ class GPT2ForPredictNext(nn.Cell):
         # labels=None
     ):
 
-        transformer_outputs = self.transformer(
+        transformer_outputs = self.gpt2(
             input_ids,
             input_mask
         )
