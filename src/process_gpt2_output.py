@@ -1,13 +1,16 @@
 from typing import List, Optional, Tuple
 import numpy as np
 import mindspore
-from mindspore.common.tensor import Tensor
+from mindspore import Tensor
 from mindspore.ops import operations as P
 import mindspore.common.dtype as mstype
 
+
 def generate(
+        model=None,
         config=None,
         input_ids: Optional[Tensor] = None,
+        input_mask: Optional[Tensor] = None,
         max_length: Optional[int] = 1024,
         min_length: Optional[int] = 200,
         do_sample: Optional[bool] = False,
@@ -66,6 +69,8 @@ def generate(
     else:
         batch_size = 1
 
+    assert model is not None, "model should not be a None object."
+    assert config is not None, "config of gpt2_model is a must input param."
     assert isinstance(max_length, int) and max_length > 0, "`max_length` should be a strictly positive integer."
     assert isinstance(min_length, int) and min_length >= 0, "`min_length` should be a positive integer."
     assert isinstance(do_sample, bool), "`do_sample` should be a boolean."
@@ -136,8 +141,12 @@ def generate(
         assert (cur_len < max_length), f"The context has {cur_len} number of tokens, but `max_length` is only {max_length}. Please make sure that `max_length` is bigger than the number of tokens, by setting either `generate(max_length=...,...)` or `config.max_length = ...`"
 
         if num_beams > 1:
+            
             output = generate_beam_search(
-                input_ids,
+                model=model,
+                config=config,
+                input_ids=input_ids,
+                input_mask=input_mask,
                 cur_len=cur_len,
                 max_length=max_length,
                 min_length=min_length,
@@ -150,15 +159,17 @@ def generate(
                 no_repeat_ngram_size=no_repeat_ngram_size,
                 pad_token_id=pad_token_id,
                 eos_token_id=eos_token_id,
-                batch_size=effective_batch_size,
-                num_return_sequences=num_return_sequences,
+                #batch_size=effective_batch_size,
+                #num_return_sequences=num_return_sequences,
                 length_penalty=length_penalty,
                 num_beams=num_beams,
-                vocab_size=vocab_size,
-                attention_mask=attention_mask,
+                #vocab_size=vocab_size,
+                #attention_mask=attention_mask,
                 use_cache=use_cache,
             )
+            
         else:
+            '''
             output = generate_no_beam_search(
                 input_ids,
                 cur_len=cur_len,
@@ -176,6 +187,7 @@ def generate(
                 attention_mask=attention_mask,
                 use_cache=use_cache,
             )
+            '''
 
 def generate_no_beam_search(
         input_ids,
@@ -183,6 +195,7 @@ def generate_no_beam_search(
         max_length,
         min_length,
         do_sample,
+        early_stopping,
         temperature,
         top_k,
         top_p,
@@ -200,6 +213,177 @@ def generate_no_beam_search(
         pass
 
 
-def generate_beam_search():
-    raise NotImplementedError   
+def generate_beam_search(
+        model,
+        config,
+        input_ids,
+        input_mask,
+        cur_len,
+        max_length,
+        min_length,
+        do_sample,
+        early_stopping,
+        temperature,
+        top_k,
+        top_p,
+        repetition_penalty,
+        no_repeat_ngram_size,
+        pad_token_id,
+        eos_token_id,
+        #batch_size,
+        length_penalty,
+        num_beams:int,
+        #attention_mask,
+        use_cache
+):
+    generated_ids = []
+
+    max_length = min(max_length,config.seq_length)
+    batch_size = config.batch_size
+    vocab_size = config.vocab_size
+    assert batch_size == 1, "For now, it only generates 1 sentence per batch."
+
+    #initialize beam_score as 0 tensor
+    init_beam_prob = np.zeros((batch_size,num_beams),dtype=float)
+    
+
+    reshape = P.Reshape()
+    squeeze_shape = (-1,)
+    top_k = P.TopK(sorted=False)
+
+
+    if do_sample is False:
+        init_beam_prob[:,1:] = -1e9
+
+    # beam_scores in form of Tensor:
+    # beam_scores = Tensor(zeros,dtype=mstype.float32)
+    # beam_scores = reshape(beam_scores,squeeze_shape)
+
+    #Use numpy for now, since batch size is only 1
+    beam_scores = init_beam_prob
+    #beam_scores: shape (batch_size*num_beams,)
+
+    #cache states
+    past_states = None
+
+    done_sentences = [False for _ in range(batch_size)]
+
+    input_ids_expand = replicate_input(input_ids,time=num_beams)
+    log_softmax = P.LogSoftmax(axis = -1)
+
+    first_token = True
+    
+    while cur_len < max_length:
+        lst_logits = []
+        generated_ids.append([])
+        for i in range(num_beams):
+            lst_logits.append( model.predict(input_ids_expand,input_mask))
+        
+        tuple_logits = tuple(lst_logits)
+        concat = P.Concat(axis = 0)
+
+        #concat from tuple of logits
+        logits = concat(tuple_logits)
+
+        next_token_logits = logits[::,cur_len,0:vocab_size]
+        # (num_beams,vocab_size)
+
+        scores = log_softmax(next_token_logits)
+        
+        candidates = None
+        sentence_prefix = None
+
+        squeezed_scores = reshape(scores,squeeze_shape)
+        #(num_beam*vocab_size)
+
+        #indices_np = None
+        if first_token :
+            first_token = False
+            values,indices = top_k(squeezed_scores[0:vocab_size],num_beams)
+            #indices (num_beams)
+
+
+            indices_np = indices.asnumpy()
+            values_np = indices.asnumpy()
+            candidates = indices_np.tolist()
+            #for the first token, we choose 0 as default for all situations since the model is not .
+            sentence_prefix = [ 0 for _ in range(num_beams)]
+            for i in range(num_beams):
+                beam_scores[i] += values_np[i]
+                generated_ids[-1].append(candidates[i])
+                
+            
+
+        else:
+            # need to choose top beams^2 prob of token
+            values,indices = top_k(squeezed_scores,num_beams*num_beams)
+            indices_np = indices.asnumpy()
+
+            indices_np = indices.asnumpy()
+            values_np = indices.asnumpy()
+
+            tmp_candidates = indices_np.tolist()
+            tmp_candidates_scores = []
+            for i in range(num_beams*num_beams):
+                sentence_index = indices_np[i]//vocab_size
+                # index of token, tmp_beam_score, sentence_index of token
+                tmp_candidates_scores.append((tmp_candidates[i]%vocab_size,values_np[i]+beam_scores[sentence_index],sentence_index))
+            
+            #sort by beam_score
+            tmp_candidates_scores.sort(key=lambda x:x[1],reverse=True)
+
+            sentence_prefix = []
+            candidates = []
+            for i in range(num_beams):
+                sentence_prefix.append(tmp_candidates_scores[i][2])
+                candidates.append(tmp_candidates_scores[i][0])
+                beam_scores[i] += tmp_candidates_scores[i][1]
+            
+        input_np = input_ids_expand.asnumpy()
+            #(num_beams,seq_length)
+        new_input = np.zeros_like(input_np)
+            
+        for i in range(num_beams):
+            new_input[i] = input_np[sentence_prefix[i]]
+            new_input[i][cur_len] = candidates[i]
+            generated_ids[-1].append(candidates[i])
+        
+        input_ids_expand = Tensor(input_np,dtype = mstype.float32)
+
+
+
+        
+        cur_len += 1
+        pass
+
+    #(seq_length,num_beams) -> (num_beams,seq_length)
+    generated_ids_np = np.array(generated_ids).T
+    token_ids = generated_ids_np.tolist()
+
+    return token_ids[0]
+
+
+def top_k_top_p_filtering(
+    logits: Tensor,
+    top_k: int = 0,
+    top_p: float = 1.0,
+    filter_value: float = -float("Inf"),
+    min_tokens_to_keep: int = 1,
+) -> Tensor:
+
+    raise NotImplementedError
+
+
+
+'''
+Replicate input_ids from (batch_size,seq_length) --> (batch_size*time,seq_length)
+'''
+def replicate_input(input_ids:Tensor,time:int):
+    tile = P.Tile()
+    replicate_shape = (time,1)
+    ret = tile(input_ids,replicate_shape)
+
+    return ret 
+    
+      
         
