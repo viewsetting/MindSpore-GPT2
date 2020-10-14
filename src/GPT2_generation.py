@@ -236,7 +236,7 @@ class Sample(nn.Cell):
                 filter_distribution = TopKTopP_Filter(self.batch_size,self.vocab_size)
                 distribution,real_index = filter_distribution(nextword_distribution)
                 
-                #(batch_size,vocab_size) --> (batch_szie)
+                #(batch_size,vocab_size) --> (batch_size)
                 word_index = self.sample_function(distribution,1)
 
                 
