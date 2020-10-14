@@ -225,6 +225,18 @@ class Sample(nn.Cell):
             # Tensor Mode
             if self.input_ids is None:
                 logits = self.decoder(self.input_ids,self.input_mask)
+                nextword_distribution = self.reshape(logits[::,len_str-1:len_str:1,::],(batch_size,-1))
+                filter_distribution = TopKTopP_Filter(self.batch_size,self.vocab_size)
+                distribution,real_index = filter_distribution(nextword_distribution)
+                word_index = self.sample_function(distribution,1)
+
+                
+                float_real_index = self.cast(real_index,mstype.float32)
+                result = reshape(onehot(word_index,self.vocab_size, self.on_value, self.off_value),(2,3))
+                
+                _real_index = self.cumsum(result*float_real_index,1)[::,-1::]
+                real_index = self.cast(_real_index,mstype.int32)
+                real_index = self.reshape(real_index,(-1,)) #Tensor (batch_size,)
 
             # string mode
             else:
