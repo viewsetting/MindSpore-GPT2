@@ -1,6 +1,7 @@
 import math
 import copy
 import numpy as np
+import mindspore
 import mindspore.common.dtype as mstype
 import mindspore.nn as nn
 import mindspore.ops.functional as F
@@ -68,7 +69,7 @@ class EmbeddingLookup(nn.Cell):
 
     Args:
         vocab_size (int): Size of the dictionary of embeddings.
-        embedding_size (int): The size of each embedding vector.
+        embedding_dim (int): The size of each embedding vector.
         use_one_hot_embeddings (bool): Specifies whether to use one hot encoding form. Default: False.
     """
     def __init__(self,
@@ -83,7 +84,7 @@ class EmbeddingLookup(nn.Cell):
 
         self.expand = P.ExpandDims()
         self.shape_flat = (-1, )
-        self.gather = P.GatherV2() # axis=1 从列取  axis=0从行取 index_select
+        self.gather = P.GatherV2()
         self.one_hot = P.OneHot()
         self.on_value = Tensor(1.0, mstype.float32)
         self.off_value = Tensor(0.0, mstype.float32)
@@ -105,41 +106,48 @@ class EmbeddingLookup(nn.Cell):
         output = self.reshape(output_for_reshape, out_shape) # [batch_size, seq_length, embedidng_dim]
         return output, self.embedding_table
 
+
 class EmbeddingPostprocessor(nn.Cell):
     """
     Postprocessors apply positional embeddings to word embeddings.
 
     Args:
         embedding_dim (int): The size of each embedding vector.
-        embedding_shape (tuple): [batch_size, seq_length, embedding_size], the shape of each embedding vector.
+        seq_length (int): the length of input sequence.
         max_position_embeddings (int): Maximum length of sequences used in this model. Default: 1024.
         dropout_prob (float): The dropout probability. Default: 0.1.
      """
     def __init__(self,
-                 embedding_dim,
-                 embedding_shape,
+                 embedding_dim=None,
+                 seq_length=None,
                  max_position_embeddings=1024,
                  dropout_prob=0.1):
         super(EmbeddingPostprocessor, self).__init__()
 
         self.position_embedding_table = Parameter(normal_weight([max_position_embeddings, embedding_dim], embedding_dim), name='position_embeddings')
-        self.shape = tuple(embedding_shape) # [batch_size, seq_len, d_model]
+        # self.shape = tuple(embedding_shape) # [batch_size, seq_len, d_model]
         self.expand_dims = P.ExpandDims()
         self.add = P.TensorAdd()
-        self.slice = P.StridedSlice()
+        self.gather = P.GatherV2()
+        self.input_indices = Tensor(np.array([x for x in range(seq_length)]), mindspore.int32)
+        # self.slice = P.StridedSlice()
         self.dropout = nn.Dropout(1 - dropout_prob, dtype=mstype.float32)
         self.use_dropout = dropout_prob > 0
 
     def construct(self, word_embeddings):
-        output = word_embeddings
+        # output = word_embeddings
         _, seq_len, dim = self.shape
-        position_embeddings = self.slice(self.position_embedding_table, (0, 0), (seq_len, dim), (1, 1))
+        # position_embeddings = self.slice(self.position_embedding_table, (0, 0), (seq_len, dim), (1, 1))
+        position_embeddings = self.gather(self.position_embedding_table, self.input_indices, 0)
+
         position_embeddings = self.expand_dims(position_embeddings, 0)
         output = self.add(word_embeddings, position_embeddings)
 
         if self.use_dropout:
             output = self.dropout(output)
+
         return output
+
 
 class CastWrapper(nn.Cell):
     """
@@ -153,6 +161,7 @@ class CastWrapper(nn.Cell):
 
     def construct(self, x):
         return self.cast(x, self.dst_type)
+
 
 class LayerNorm(nn.Cell):
     """
@@ -174,6 +183,7 @@ class LayerNorm(nn.Cell):
         output = self.cast(output, self.get_dtype(input_tensor))
         return output
 
+
 class ResidualConnection(nn.Cell):
     """
     Add residual to output.
@@ -185,7 +195,7 @@ class ResidualConnection(nn.Cell):
         Tensor, with the same shape of hidden_tensor
     """
     def __init__(self,
-                 dropout_prob=0.1):
+                 dropout_prob=0.0):
         super(ResidualConnection, self).__init__()
         self.add = P.TensorAdd()
         self.dropout = nn.Dropout(1 - dropout_prob)
@@ -220,13 +230,15 @@ class Conv1D(nn.Cell):
         self.bias = Parameter(zero_weight(nf), name='projection_bias')
 
         self.matmul = P.MatMul()
-        self.add = P.TensorAdd()
+        # self.add = P.TensorAdd()
+        self.bias_add = P.BiasAdd()
 
     def construct(self, input_tensor):  # [batch_size * seq_length, nx]
         output_tensor = self.matmul(input_tensor, self.weight)  # [batch_size * seq_length, self.nf]
-        output_tensor = self.add(output_tensor, self.bias) # [batch_size * seq_length, self.nf]
+        output_tensor = self.bias_add(output_tensor, self.bias) # [batch_size * seq_length, self.nf]
 
         return output_tensor
+
 
 class MaskedSelfAttention(nn.Cell):
     """
@@ -366,10 +378,9 @@ class FeedForward(nn.Cell):
 
         self.layernorm = LayerNorm(in_channels=in_channels)
         self.residual_connect = ResidualConnection(dropout_prob=hidden_dropout)
-        self.gelu = nn.GELU()
+        self.gelu_act = P.Gelu()
         self.dropout = nn.Dropout(1 - hidden_dropout)
         self.use_dropout = hidden_dropout > 0
-
         self.reshape = P.Reshape()
 
     def construct(self, input_tensor): # input_tensor shape [batch_szie * seq_len, d_model]
@@ -377,12 +388,14 @@ class FeedForward(nn.Cell):
         output = self.layernorm(input_tensor)
         # Feed Forward
         output = self.c_fc(output)  # [batch_szie * seq_len, d_model * 4]
+        output = self.gelu_act(output)
+        output = self.c_proj(output)  # [batch_szie * seq_len, d_model]
         if self.use_dropout:
             output = self.dropout(output)
-        output = self.c_proj(output)  # [batch_szie * seq_len, d_model]
         # Add
         output = self.residual_connect(output, input_tensor) # [batch_szie * seq_len, d_model]
         return output
+
 
 class MaskedMultiHeadAttention(nn.Cell):
     def __init__(self,
@@ -415,7 +428,7 @@ class MaskedMultiHeadAttention(nn.Cell):
         )
 
         self.layer_norm = LayerNorm(in_channels=d_model)
-        self.residual_connection = ResidualConnection(dropout_prob=hidden_dropout)
+        self.residual_connection = ResidualConnection()
 
         self.reshape = P.Reshape()
         self.new_shape = (-1, d_model)
@@ -634,7 +647,7 @@ class GPT2Model(nn.Cell):
         )
         self.gpt2_embedding_postprocess = EmbeddingPostprocessor(
             embedding_dim=self.embedding_dim,
-            embedding_shape=(self.batch_size, self.seq_length, self.d_model),
+            seq_length=self.seq_length,
             max_position_embeddings=config.max_position_embeddings,
             dropout_prob=config.hidden_dropout
         )
