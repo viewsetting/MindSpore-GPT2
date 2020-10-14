@@ -331,11 +331,11 @@ class GPT2Summarization(nn.Cell):
     def construct(self, input_ids,input_mask,label_ids):
         output = self.gpt2(input_ids,input_mask)
 
-        pre_lm_logits = output[:self.batch_size, :self.seq_length-1, ::]
+        pre_lm_logits = output[:self.batch_size, :self.seq_length-1, :]
 
         shift_squeezed_logits = self.reshape(
             pre_lm_logits, (-1, pre_lm_logits.shape[-1]))
-        shift_squeezed_labels = self.reshape(label_ids[::, 1:], (-1,))
+        shift_squeezed_labels = self.reshape(label_ids[:, 1:], (-1,))
 
         loss = self.loss_function(shift_squeezed_logits, shift_squeezed_labels)
         return self.cast(loss, mstype.float32)
