@@ -3,7 +3,7 @@ from mindspore import nn as nn
 from mindspore import Tensor
 from mindspore.common import dtype as mstype
 from mindspore.ops import operations as P
-from mindspore.common.initializer import Normal
+from mindspore.common.initializer import Normal,TruncatedNormal
 from .utils.CrossEntropy import CrossEntropyCalculation
 from scipy.special import softmax
 import numpy as np
@@ -20,7 +20,11 @@ class GPT2ForPredictNext(nn.Cell):
         self.gpt2 = GPT2Model(
             config, is_training, use_one_hot_embeddings)
         self.lm_head = nn.Dense(config.d_model, config.vocab_size, has_bias=False,
-                                weight_init=Normal(sigma=config.initializer_range))
+                                weight_init=TruncatedNormal(sigma=config.initializer_range))
+        
+        # self.lm_head = nn.Dense(config.d_model, config.vocab_size, has_bias=False,
+        #                         weight_init=Normal(sigma=config.initializer_range))
+
 
         # dequote to use mindspore implement
         # self.loss_function = nn.SoftmaxCrossEntropyWithLogits(sparse = True)
@@ -30,7 +34,8 @@ class GPT2ForPredictNext(nn.Cell):
             is_training = is_training)
         '''
         self.reshape = P.Reshape()
-        self.softmax = nn.Softmax(axis=-1)
+        self.softmax = P.Softmax(axis=-1)
+        self.log_softmax = P.LogSoftmax(axis=-1)
         self.batch_size = config.batch_size
         self.vocab_size = config.vocab_size
         self.seq_length = config.seq_length
@@ -188,6 +193,10 @@ class GPT2ForPredictNext(nn.Cell):
         labels here could be the next-token sequence.
     """
 
+    def get_lm_head(self,input_ids):
+        return self.lm_head(input_ids)
+
+
     def construct(
         self,
         input_ids=None,
@@ -197,12 +206,12 @@ class GPT2ForPredictNext(nn.Cell):
         # labels=None
     ):
 
-        transformer_outputs = self.gpt2(
+        transformer_outputs,_= self.gpt2(
             input_ids,
             input_mask
         )
 
-        hidden_state = transformer_outputs[0]
+        hidden_state = transformer_outputs
         batch_size = hidden_state.shape[0]
         sequence_length = hidden_state.shape[1]
 
@@ -210,7 +219,7 @@ class GPT2ForPredictNext(nn.Cell):
         lm_logits = self.lm_head(hidden_state)
         #print_ = P.Print()
         #self.print('======\n','======\n')
-        lm_logits = self.softmax(lm_logits)
+        #lm_logits = self.log_softmax(lm_logits)
         lm_logits = self.reshape(lm_logits, (batch_size, sequence_length, -1))
 
         loss = None
