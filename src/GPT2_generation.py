@@ -89,12 +89,24 @@ class TileBeam(nn.Cell):
 
         return output
 
-"""
-top K sampling along with top P sampling
 
-if k = 0, sorted_indexes will be None
-"""
 class TopKTopP_Filter(nn.Cell):
+    """
+    top K sampling along with top P sampling
+    Args:
+        batch_size and vocab_size of model
+        k for Top-K sampling and p for Top-P a.k.a. Necleus Sampling
+        min_tokens_to_keep: a number for a guareented generation
+    Inputs:
+        distribution(Tensor): with shape (batch_size,vocab_size)
+    Outputs:
+        distribution(Tensor): with shape(batch_size, vocab_size), masked logits
+        sorted_indexes(Tensor or None): Tensor with shape(batch_size,vocab_size) or None if do no sampling
+
+    if k = 0, sorted_indexes will be None
+
+
+    """
     def __init__(self,batch_size,vocab_size,k=0,p=1.0,min_tokens_to_keep=1):
         super(TopKTopP_Filter,self).__init__()
 
@@ -118,7 +130,7 @@ class TopKTopP_Filter(nn.Cell):
         assert self.min_tokens_to_keep < self.k,'K must be larger than min_token_to_keep for top p sampling'
         
    
-    def construct(self,distribution):
+    def construct(self,distribution:Tensor):
         
         values,indices = self.topK(distribution,self.k)
         sorted_indices = None
@@ -294,7 +306,7 @@ if __name__=='__main__':
     # print(mask)
     # print(mask*test)
     print(test)
-    topk = TopKTopP_Filter(2,3)
+    topk = TopKTopP_Filter(2,3,2,0.6)
     ret,ind = topk(test)
     print(ret)
 
