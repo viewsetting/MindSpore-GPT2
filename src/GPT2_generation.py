@@ -183,12 +183,16 @@ class Sample(nn.Cell):
         self.decoder = decoder
         self.tokenizer = tokenizer
         self.reshape = P.Reshape()
+        self.cumsum = P.CumSum()
         self.softmax = P.Softmax(axis = -1)
         self.generate_length = generate_length
         self.seq_length = model_config.seq_length
         self.batch_size = model_config.batch_size
         self.vocab_size = model_config.vocab_size
         self.sample_function = P.Multinomial(seed=1)
+        self.on_value = Tensor(1.0, mstype.float32)
+        self.off_value = Tensor(0.0, mstype.float32)
+        self.cast = P.Cast()
 
         if self.tokenizer is not None:
             self.eos_id = self.tokenizer.eos_token_id
@@ -235,8 +239,20 @@ class Sample(nn.Cell):
                 #(batch_size,vocab_size) --> (batch_szie)
                 word_index = self.sample_function(distribution,1)
 
+                
+                float_real_index = self.cast(real_index,mstype.float32)
+                result = reshape(onehot(word_index,self.vocab_size, self.on_value, self.off_value),(2,3))
+                
+                _real_index = self.cumsum(result*float_real_index,1)[::,-1::]
+                real_index = self.cast(_real_index,mstype.int32)
+                real_index = self.reshape(real_index,(-1,)) #Tensor (batch_size,)
 
-                if self.early_stopping and False:
+                #print(real_index)
+    
+
+
+                if self.early_stopping and self.batch_size == 1 and False:
+                    
                     break
         
 
@@ -314,9 +330,21 @@ if __name__=='__main__':
     samples = muno(ret,1)
     print(samples)
     print(ind)
+    reshape=P.Reshape()
+    # ind = cast(ind,mstype.float32)
+    # axis = 1
+    # gather = P.GatherV2()(ind,samples,axis)
+    # print("GAHTERV2")
+    # print(gather)
+    onehot = P.OneHot()
+    depth, on_value, off_value = 3, Tensor(1.0, mstype.float32), Tensor(0.0, mstype.float32)
     ind = cast(ind,mstype.float32)
-    axis = 1
-    gather = P.GatherV2()(ind,samples,axis)
-    print("GAHTERV2")
-    print(gather)
+    result = reshape(onehot(samples,depth, on_value, off_value),(2,3))
+    print(result)
+    cs = P.CumSum()
+    real_index = cs(result*ind,1)[::,-1::]
+    real_index = cast(real_index,mstype.int32)
+    real_index = reshape(real_index,(-1,))
+    print(real_index)
+    
     
