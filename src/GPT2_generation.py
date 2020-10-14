@@ -230,13 +230,13 @@ class Sample(nn.Cell):
                 distribution,real_index = filter_distribution(nextword_distribution)
                 word_index = self.sample_function(distribution,1)
 
+                if real_index is not None:
+                    float_real_index = self.cast(real_index,mstype.float32)
+                    result = reshape(onehot(word_index,self.vocab_size, self.on_value, self.off_value),(2,3))
                 
-                float_real_index = self.cast(real_index,mstype.float32)
-                result = reshape(onehot(word_index,self.vocab_size, self.on_value, self.off_value),(2,3))
-                
-                _real_index = self.cumsum(result*float_real_index,1)[::,-1::]
-                real_index = self.cast(_real_index,mstype.int32)
-                real_index = self.reshape(real_index,(-1,)) #Tensor (batch_size,)
+                    _real_index = self.cumsum(result*float_real_index,1)[::,-1::]
+                    real_index = self.cast(_real_index,mstype.int32)
+                    real_index = self.reshape(real_index,(-1,)) #Tensor (batch_size,)
 
             # string mode
             else:
@@ -251,13 +251,13 @@ class Sample(nn.Cell):
                 #(batch_size,vocab_size) --> (batch_size)
                 word_index = self.sample_function(distribution,1)
 
+                if real_index is not None:
+                    float_real_index = self.cast(real_index,mstype.float32)
+                    result = reshape(onehot(word_index,self.vocab_size, self.on_value, self.off_value),(2,3))
                 
-                float_real_index = self.cast(real_index,mstype.float32)
-                result = reshape(onehot(word_index,self.vocab_size, self.on_value, self.off_value),(2,3))
-                
-                _real_index = self.cumsum(result*float_real_index,1)[::,-1::]
-                real_index = self.cast(_real_index,mstype.int32)
-                real_index = self.reshape(real_index,(-1,)) #Tensor (batch_size,)
+                    _real_index = self.cumsum(result*float_real_index,1)[::,-1::]
+                    real_index = self.cast(_real_index,mstype.int32)
+                    real_index = self.reshape(real_index,(-1,)) #Tensor (batch_size,)
 
                 #print(real_index)
     
