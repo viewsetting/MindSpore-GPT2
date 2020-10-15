@@ -142,6 +142,8 @@ class TopKTopP_Filter(nn.Cell):
             mask = self.cast(binary_mask,mstype.float32)
             distribution = distribution * mask
             distribution,sorted_indices = self.topK(distribution,self.vocab_size)
+        else:
+            distribution,sorted_indices = self.topK(distribution,self.vocab_size)
             
         #THEN TOP P SAMPLE
         if self.p < 1.0:
@@ -164,8 +166,8 @@ class TopKTopP_Filter(nn.Cell):
             
 
 
-class Sample(nn.Cell):
-    def __init__(self,decoder,generate_length=1,tokenizer=None,model_config=None,input_ids=None,input_mask=None,input_str= None,topk_num=40,topp_prob=1.0,early_stop=False):
+class Sample():
+    def __init__(self,decoder,generate_length=1,tokenizer=None,model_config=None,input_ids=None,input_mask=None,input_str= None,topk_num=5,topp_prob=0.9,min_tokens_to_keep=1,early_stop=False):
         
         #several checks for string mode or input tensors a.k.a. Tensor mode
         assert  model_config is not None,'Config is a must for sampling.'
@@ -173,17 +175,19 @@ class Sample(nn.Cell):
         if input_str is not None:
             assert (tokenizer is not None ),'if choose to give input_str, a tokenizer is necessary.'
         if input_ids is not None:
-            assert  ( input_mask is None),'input_mask is not found which should be associated with input_ids'
+            assert  ( input_mask is not None),'input_mask is not found which should be associated with input_ids'
 
         self.model_config = model_config
         self.topk_num = topk_num
         self.topp_prob = topp_prob
+        self.min_tokens_to_keep = min_tokens_to_keep
         self.input_ids = input_ids
         self.input_str = input_str
         self.decoder = decoder
         self.tokenizer = tokenizer
         self.reshape = P.Reshape()
         self.cumsum = P.CumSum()
+        self.onehot = P.OneHot()
         self.softmax = P.Softmax(axis = -1)
         self.generate_length = generate_length
         self.seq_length = model_config.seq_length
@@ -193,79 +197,100 @@ class Sample(nn.Cell):
         self.on_value = Tensor(1.0, mstype.float32)
         self.off_value = Tensor(0.0, mstype.float32)
         self.cast = P.Cast()
+        self.early_stop = early_stop
 
         if self.tokenizer is not None:
             self.eos_id = self.tokenizer.eos_token_id
         else:
             self.eos_id = model_config.vocab_size-1
+        
+        if self.input_str is not None:
+            assert (self.batch_size==1),'BATCH_SIZE must be 1, if choose to input string'
 
-    def tensorize_ids_with_masks(self,tokenzier,src_str):
-        src_list = tokenzier.encode(src_str)
+    def tensorize_ids_with_masks(self,src_str):
+
+        input_shape = (self.batch_size, self.seq_length)
+
+        src_list = self.tokenizer.encode(src_str)
         src_len = len(src_list)
         if src_len > self.seq_length:
             src_list = src_list[:self.seq_length]
             src_len = self.seq_length
-        ret_dict = tokenizer.prepare_for_model(src_list,max_length=self.model_config.sequence_length,add_special_tokens=False)
+        ret_dict = self.tokenizer.prepare_for_model(src_list,max_length=self.model_config.seq_length,add_special_tokens=False)
         
         input_ids_ = ret_dict['input_ids']
         input_mask_ = ret_dict['attention_mask']
 
-        input_ids = Tensor(np.array(input_ids_,dtype=int),dtype=mstype.int32)
-        input_mask = Tensor(np.array(input_mask_,dtype=int),dtype=mstype.int32)
+        input_ids = self.reshape(Tensor(np.array(input_ids_,dtype=int),dtype=mstype.int32),input_shape)
+        input_mask = self.reshape(Tensor(np.array(input_mask_,dtype=int),dtype=mstype.int32),input_shape)
+
 
         return input_ids,input_mask,src_len
 
-    def construct(self,input_ids):
+    def generate(self,input_ids=None):
+
         
         generate_str = ""
         full_str = self.input_str
+        self.input_ids = input_ids
+        
 
         for _ in range(self.generate_length):
         
             # Tensor Mode
-            if self.input_ids is None:
+            if self.input_str is None:
                 logits = self.decoder(self.input_ids,self.input_mask)
                 nextword_distribution = self.reshape(logits[::,len_str-1:len_str:1,::],(batch_size,-1))
                 filter_distribution = TopKTopP_Filter(self.batch_size,self.vocab_size)
                 distribution,real_index = filter_distribution(nextword_distribution)
                 word_index = self.sample_function(distribution,1)
 
-                if real_index is not None:
-                    float_real_index = self.cast(real_index,mstype.float32)
-                    result = reshape(onehot(word_index,self.vocab_size, self.on_value, self.off_value),(2,3))
+                float_real_index = self.cast(real_index,mstype.float32)
+                result = self.reshape(self.onehot(word_index,self.vocab_size, self.on_value, self.off_value),(self.batch_size,self.vocab_size))
                 
-                    _real_index = self.cumsum(result*float_real_index,1)[::,-1::]
-                    real_index = self.cast(_real_index,mstype.int32)
-                    real_index = self.reshape(real_index,(-1,)) #Tensor (batch_size,)
+                _real_index = self.cumsum(result*float_real_index,1)[::,-1::]
+                real_index = self.cast(_real_index,mstype.int32)
+                real_index = self.reshape(real_index,(-1,)) #Tensor (batch_size,)
 
             # string mode
             else:
-                input_ids, input_mask,len_str = self.tensorize_ids_with_masks(self.input_str)
-                logits = self.decoder(input_ids,input_mask)
+                input_ids, input_mask,len_str = self.tensorize_ids_with_masks(full_str)
+                
+                logits = self.decoder.predict(input_ids,input_mask)
+                #print("DECODER Finished")
+
                 #(batch_size,seq_length,vocab_size) ---> (batch_size,1,vocab_length) --> (batch_size,vocab_length)
-                nextword_distribution = self.reshape(logits[::,len_str-1:len_str:1,::],(batch_size,-1))
+                nextword_distribution = self.reshape(logits[::,len_str-1:len_str:1,::],(self.batch_size,-1))
                 #next_word_distribution = self.softmax(nextword_distribution)
-                filter_distribution = TopKTopP_Filter(self.batch_size,self.vocab_size)
+                #print("NEXT_WORD",nextword_distribution)
+                filter_distribution = TopKTopP_Filter(self.batch_size,self.vocab_size,self.topk_num,self.topp_prob,self.min_tokens_to_keep)
+                
+                #print("TOPKTOPP")
                 distribution,real_index = filter_distribution(nextword_distribution)
                 
                 #(batch_size,vocab_size) --> (batch_size)
                 word_index = self.sample_function(distribution,1)
 
-                if real_index is not None:
-                    float_real_index = self.cast(real_index,mstype.float32)
-                    result = reshape(onehot(word_index,self.vocab_size, self.on_value, self.off_value),(2,3))
+                float_real_index = self.cast(real_index,mstype.float32)
+                result = self.reshape(self.onehot(word_index,self.vocab_size, self.on_value, self.off_value),(self.batch_size,self.vocab_size))
                 
-                    _real_index = self.cumsum(result*float_real_index,1)[::,-1::]
-                    real_index = self.cast(_real_index,mstype.int32)
-                    real_index = self.reshape(real_index,(-1,)) #Tensor (batch_size,)
+                _real_index = self.cumsum(result*float_real_index,1)[::,-1::]
+                real_index = self.cast(_real_index,mstype.int32)
+                sampled_next_word_index = self.reshape(real_index,(-1,)) #Tensor (batch_size,)
 
-                #print(real_index)
-    
+                #print("REAL_INDEX: ",sampled_next_word_index)
+                
+                sampled_next_word_index_list = sampled_next_word_index.asnumpy().tolist()
+                for batch_idx in range(self.batch_size):
+                    next_word_index = sampled_next_word_index_list[batch_idx]
+                    next_word_str = self.tokenizer.decode([next_word_index])
+                    full_str += next_word_str
+                    generate_str += next_word_str
 
 
-                if self.early_stopping and self.batch_size == 1 and False:
+                # if self.early_stop and self.batch_size == 1 and False:
                     
-                    break
+                #     break
         
 
         return generate_str,full_str
