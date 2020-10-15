@@ -127,7 +127,7 @@ class TopKTopP_Filter(nn.Cell):
         self.safty_mask_left = np.zeros((batch_size,min_tokens_to_keep),dtype=float)
         self.safty_mask_right = np.ones((batch_size,vocab_size-min_tokens_to_keep),dtype=float)
         self.safty_mask = Tensor(np.concatenate((self.safty_mask_left,self.safty_mask_right),axis=1),dtype=mstype.float32)
-        assert self.min_tokens_to_keep < self.k,'K must be larger than min_token_to_keep for top p sampling'
+        assert self.min_tokens_to_keep <= self.k,'K must be larger than or equal to min_token_to_keep for top p sampling'
         
    
     def construct(self,distribution:Tensor):
