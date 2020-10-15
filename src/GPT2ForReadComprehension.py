@@ -16,14 +16,17 @@ class GPT2CoQAModel(nn.Cell):
         self.weight_init = TruncatedNormal(config.initializer_range)
         self.dense1 = nn.Dense(config.d_model, config.vocab_size, weight_init=self.weight_init, has_bias=True).to_float(
             config.compute_type)
+        self.log_softmax = P.LogSoftmax(axis=-1)
         self.vocab_size = config.vocab_size
         self.dtype = config.dtype
 
     def construct(self, input_ids, input_mask):
         decoder_output, _ = self.gpt2(input_ids, input_mask)
+        decoder_output = P.Cast()(decoder_output, self.dtype)
         batch_size, seq_length, hidden_size = P.Shape()(decoder_output)
         sequence = P.Reshape()(decoder_output, (-1, hidden_size))
         logits = self.dense1(sequence)
         logits = P.Cast()(logits, self.dtype)
+        logits = self.log_softmax(logits)
         logits = P.Reshape()(logits, (batch_size, seq_length, self.vocab_size))
         return logits

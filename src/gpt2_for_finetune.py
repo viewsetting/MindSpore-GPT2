@@ -299,21 +299,18 @@ class GPT2CoQA(nn.Cell):
         self.gpt2 = GPT2CoQAModel(config, is_training, use_one_hot_embeddings)
         self.loss = nn.SoftmaxCrossEntropyWithLogits(is_grad=False, sparse=True)
         self.is_training = is_training
+        self.num_labels = config.vocab_size
+        self.loss = CrossEntropyCalculation(is_training=is_training)
         self.log_softmax = P.LogSoftmax(axis=-1)
-        self.last_idx = (-1,)
+        self.label_indices = Tensor(np.array([x for x in range(1, config.seq_length)]), mindspore.int32)
 
     def construct(self, input_ids, input_mask, label_ids):
-        output = self.gpt2(input_ids, input_mask)
-        output_shape = P.Shape()(output)
-        output = P.Reshape()(output, (-1, output_shape[-1]))
-
-        if self.is_training:
-            label_ids = P.Reshape()(label_ids, self.last_idx)
-            loss = self.loss(output, label_ids)
-        else:
-            logits = self.log_softmax(output)
-            loss = logits * 1.0
-        return loss
+        logits = self.gpt2(input_ids, input_mask)
+        shift_logits = logits[:,:-1,:]
+        shift_logits = P.Reshape()(shift_logits,(-1,self.num_labels))
+        label_ids = P.GatherV2()(label_ids, self.label_indices, 1)
+        loss = self.loss(shift_logits, label_ids, self.num_labels)
+        return P.Cast()(loss, mstype.float32)
 
 class GPT2Summarization(nn.Cell):
     def __init__(self, config, is_training, use_one_hot_embeddings=False):
