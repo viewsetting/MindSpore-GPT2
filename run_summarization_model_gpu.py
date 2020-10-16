@@ -22,6 +22,7 @@ from mindspore.train.callback import CheckpointConfig, ModelCheckpoint, TimeMoni
 from mindspore.train.serialization import load_checkpoint, load_param_into_net
 from src.utils.tokenization import Tokenizer
 from mindspore.ops import operations as P
+from src.GPT2_generation import Sample
 
 def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoint_path="", epoch_num=1):
     """
@@ -125,15 +126,22 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path=""):
             input_ids = Tensor(input_ids, mindspore.int32)
             input_mask = Tensor(input_mask, mindspore.int32)
             label_ids = Tensor(label_ids, mindspore.int32)
+            
+
             print("input_ids shape: {}".format(input_ids.shape))
             print("label_ids shape: {}".format(label_ids.shape))
             print("============= Summrization Testing =============")
-            logits = model.predict(input_ids, input_mask)
-            print("logits shape: {}".format(logits.shape))
-            str1,str2 = transfrom_to_text(input_ids,logits)
-            print("REF str:\n ",str1,"\nHYPO str:\n",str2,"\n")
-            print("LENGHTH: ",len(str1),"   and   ",len(str2),"\n")
-            callback.update(str1, str2)
+            
+            #logits = model.predict(input_ids, input_mask)
+            #print("logits shape: {}".format(logits.shape))
+            #str1,str2 = transfrom_to_text(input_ids,logits)
+            tokenizer = Tokenizer(vocab_file='./src/utils/pretrain-data/gpt2-vocab.json',merge_file='./src/utils/pretrain-data/gpt2-merges.txt')
+            sample = Sample(model,tokenizer=tokenizer,model_config=gpt2_net_cfg,topp_prob=0.92)
+            #input_str,ref_str = sample.extract_string_from_tensor(input_ids,mode="pair") 
+            hypo,ref = sample.generate_for_CNN_DAILYMAIL(input_ids,generate_length=100,select_sentence=3)
+            print("REF str:\n ",ref,"\nHYPO str:\n",hypo,"\n")
+            print("LENGHTH: ",len(ref),"   and   ",len(hypo),"\n")
+            callback.update(ref, hypo)
         print("==============================================")
         eval_result_print(metric, callback)
         print("==============================================")
@@ -215,9 +223,9 @@ def run_summarization():
                         help="Enable eval data shuffle. Default: false.")
     parser.add_argument("--save_finetune_ckpt_path", type=str, default="/datasets/pretrained_weights/saved/",
                         help="Save the checkpoint path.")
-    parser.add_argument("--load_pretrain_ckpt_path", type=str, default="/datasets/pretrained_weights/ms_model_small.ckpt",
+    parser.add_argument("--load_pretrain_ckpt_path", type=str, default="/datasets/pretrained_weights/ms_model_medium.ckpt",
                         help="Load the checkpoint file path.")
-    parser.add_argument("--load_finetune_ckpt_path", type=str, default="/datasets/pretrained_weights/ms_model_small.ckpt",
+    parser.add_argument("--load_finetune_ckpt_path", type=str, default="/datasets/pretrained_weights/ms_model_medium.ckpt",
                         help="Load the checkpoint file path.")
     parser.add_argument("--train_data_file_path", type=str, default="/datasets/cnn_dailymail",
                         help="Data path, it is better to use absolute path")
