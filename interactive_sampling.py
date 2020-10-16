@@ -60,7 +60,7 @@ if __name__ == '__main__':
     print('We are now in testing mode for GPT2 Interactive Generation Demo.py')
     print('*'*65)
     print('Set Running Env and Load Model')
-    gpt2, config = set_env()
+    gpt2, config = set_env(mode="GPU",device_id=0)
     generation_length = 50
 
     tokenizer = Tokenizer(vocab_file='./src/utils/pretrain-data/gpt2-vocab.json',
