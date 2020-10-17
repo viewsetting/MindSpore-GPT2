@@ -96,7 +96,7 @@ def eval_result_print(metric="Rouge", callback=None):
 
 def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path=""):
     """
-    Do eval
+    Do evaluation on summarization
     Args:
         dataset: the eval dataset.
         network:  the network with loss.
@@ -116,6 +116,8 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path=""):
         param_dict = load_checkpoint(load_checkpoint_path)
         load_param_into_net(gpt2_loss, param_dict)
         model = Model(gpt2_loss)
+        tokenizer = Tokenizer(vocab_file='./src/utils/pretrain-data/gpt2-vocab.json',
+        merge_file='./src/utils/pretrain-data/gpt2-merges.txt')
 
         columns_list = ["input_ids", "input_mask", "label_ids"]
         for data in dataset.create_dict_iterator():
@@ -123,24 +125,17 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path=""):
             for i in columns_list:
                 input_data.append(data[i])
             input_ids, input_mask, label_ids = input_data
-            input_ids = Tensor(input_ids, mindspore.int32)
-            input_mask = Tensor(input_mask, mindspore.int32)
-            label_ids = Tensor(label_ids, mindspore.int32)
-            
 
             print("input_ids shape: {}".format(input_ids.shape))
             print("label_ids shape: {}".format(label_ids.shape))
             print("============= Summrization Testing =============")
             
-            #logits = model.predict(input_ids, input_mask)
-            #print("logits shape: {}".format(logits.shape))
-            #str1,str2 = transfrom_to_text(input_ids,logits)
-            tokenizer = Tokenizer(vocab_file='./src/utils/pretrain-data/gpt2-vocab.json',merge_file='./src/utils/pretrain-data/gpt2-merges.txt')
+           
             sample = Sample(model,tokenizer=tokenizer,model_config=gpt2_net_cfg,topp_prob=0.92)
             #input_str,ref_str = sample.extract_string_from_tensor(input_ids,mode="pair") 
             hypo,ref = sample.generate_for_CNN_DAILYMAIL(input_ids,generate_length=100,select_sentence=3)
             print("REF str:\n ",ref,"\nHYPO str:\n",hypo,"\n")
-            print("LENGHTH: ",len(ref),"   and   ",len(hypo),"\n")
+            print("LENGTH: ",len(ref),"   and   ",len(hypo),"\n")
             callback.update(ref, hypo)
         print("==============================================")
         eval_result_print(metric, callback)
@@ -150,54 +145,6 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path=""):
     else:
         raise ValueError("metric method not supported in summarization, support: [Rouge]")
 
-def transfrom_to_text(input_ids,logits):
-    tokenizer = Tokenizer(vocab_file='./src/utils/pretrain-data/gpt2-vocab.json',merge_file='./src/utils/pretrain-data/gpt2-merges.txt')
-    eos_id = tokenizer.eos_token_id
-    
-    index,_ = P.ArgMaxWithValue(axis=-1)(logits)
-    squeeze = P.Reshape()
-    index = squeeze(index,(-1,))
-    index_np = index.asnumpy()
-    index_list = index_np.tolist()
-    index_len = len(index_list)
-    hyp_start = 0
-    hyp_end = index_len
-    for i in range(0,index_len):
-        if index_list[i] == eos_id:
-            while index_list[i] == eos_id:
-                i += 1
-            hyp_start = i
-            break
-    for i in range(hyp_start+1,index_len):
-        if index_list[i] == eos_id:
-            hyp_end = i
-            break
-    
-
-    
-
-    input_ids_ = squeeze(input_ids,(-1,))
-    ref_list = input_ids_.asnumpy()
-
-    ref_start = 0
-    ref_end = index_len
-
-    for i in range(1,index_len):
-        if ref_list[i] == eos_id:
-            while ref_list[i] == eos_id:
-                i += 1
-            ref_start = i
-            break
-    for i in range(ref_start+1,index_len):
-        if ref_list[i] == eos_id:
-            ref_end = i
-            break
-
-
-    ref_str = tokenizer.decode(ref_list[ref_start:ref_end])
-    hyp_str = tokenizer.decode(index_list[hyp_start:min(hyp_end,hyp_start+(ref_end-ref_start))])
-    
-    return ref_str,hyp_str
 
 def run_summarization():
     '''
