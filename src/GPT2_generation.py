@@ -231,17 +231,17 @@ class Sample():
     def extract_string_from_tensor(self, input_ids: Tensor,  mode="pair"):
         """
         Args:
-            input_ids: Tensor(self.batchsize,self.seq_length)
-            mode:   "pair","single"and "lambada", "pair" for tasks with paired inputs, such as Text Summarization,
-                    single output tasks with single input such as Language Modeling, "lambada" for LAMBADA dataset, which has
+            input_ids(Tensor): input tensor of sequence index. Shape: (self.batchsize,self.seq_length)
+            mode(str):   "pair","single"and "CBT", "pair" for tasks with paired inputs, such as Text Summarization,
+                    single output tasks with single input such as Language Modeling, "CBT" for the Children Book Test dataset, which has
                     3 componets of input (Leading text, Multiple choice to fill, Rest text).
         Return:
-            prompt_list, list of prompt_text, or first part of text
+            prompt_list, list of prompt_text, or first part of text(list or str)
             reference_list, list of reference_text, or second part of text
             rest_list , list of rest_text, or rest part of text
-            IF self.batch_size is 1, it will return the first sentence of list, that is to say, the string.
+            If self.batch_size is 1, it will return the first sentence of list, that is to say, the string.
                 Example:
-                for pair mode, if self.batchsize=1, it will return prompt_list[0],reference_list[0]
+                for pair mode, if self.batchsize=1, it will return prompt_list[0], reference_list[0]
         """
         assert self.tokenizer is not None, 'There is no tokenizer'
         prompt_list = []
@@ -286,8 +286,9 @@ class Sample():
                 return prompt_list[0]
             else:
                 return prompt_list
-
-        elif mode == "lambada":
+        
+        # For CBT dataset
+        elif mode == "CBT":
             for batch_idx in range(self.batch_size):
                 sentence_tensor = input_ids[batch_idx]
                 sentence_list = sentence_tensor.asnumpy().tolist()[1:]
@@ -304,7 +305,9 @@ class Sample():
                 prompt_list.append(sentence[prompt_start:prompt_end])
                 reference_list.append(sentence[reference_start:reference_end])
                 rest_list.append(sentence[rest_start:rest_end])
-
+            
+            #return string(s) or list(s), str mode was designed for the benefit of interactive demo which it will
+            #return a str that make sense for user and easy to use.
             if self.batch_size == 1:
                 return prompt_list[0], reference_list[0], rest_list[0]
             else:
@@ -461,7 +464,11 @@ class Sample():
 
         article_str, summary_str = self.extract_string_from_tensor(
             input_ids, mode="pair")
-        article_str += (" "+self.tokenizer.eos_token)
+        
+        #pad a <TL,DR;> token(<EOS>) after the string of Article.
+        if TL_DR:
+            article_str += (" "+self.tokenizer.eos_token)
+        
         print("Sample.generate_for_CNN_DAILYMAIL debugging info:\nARTICLE STR:")
         print(article_str)
         generate_str, _ = self.generate(
