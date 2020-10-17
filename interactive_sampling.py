@@ -57,16 +57,16 @@ def list2tensor(lst, dtype=mstype.float32):
 
 if __name__ == '__main__':
     print('*'*65)
-    print('We are now in testing mode for GPT2 Interactive Generation Demo.py')
+    print('We are now in testing mode for GPT2 Interactive Generation Demo')
     print('*'*65)
     print('Set Running Env and Load Model')
     gpt2, config = set_env(mode="GPU",device_id=0)
-    generation_length = 50
+    generate_length = 50
 
     tokenizer = Tokenizer(vocab_file='./src/utils/pretrain-data/gpt2-vocab.json',
                           merge_file='./src/utils/pretrain-data/gpt2-merges.txt')
 
-    sample = Sample(gpt2, generate_length=generation_length, tokenizer=tokenizer,
+    sample = Sample(gpt2, generate_length=generate_length, tokenizer=tokenizer,
                     model_config=config, topk_num=0, topp_prob=0.92, min_tokens_to_keep=1)
 
     official_unicorn_demo = "In a shocking finding, scientist discovered a herd of unicorns living in a remote, previously unexplored valley, in the Andes Mountains. Even more surprising to the researchers was the fact that the unicorns spoke perfect English."
