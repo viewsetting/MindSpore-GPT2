@@ -119,10 +119,15 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path=""):
             reorganized_param_dict['gpt2.'+netName] = param_dict[netName]
         reorganized_param_dict['lm_head.weight'] = param_dict['gpt2_embedding_lookup.embedding_table']
         load_param_into_net(gpt2_loss, reorganized_param_dict)
+
+        # for item in gpt2_loss.get_parameters():
+
+        #     print('name: ',item.data.name)
+
         model = Model(gpt2_loss)
         tokenizer = Tokenizer(vocab_file='./src/utils/pretrain-data/gpt2-vocab.json',
         merge_file='./src/utils/pretrain-data/gpt2-merges.txt')
-
+        sample = Sample(model,tokenizer=tokenizer,model_config=gpt2_net_cfg,topk_num = 1,topp_prob=0.92,min_tokens_to_keep=1,demo_mode=False)
         columns_list = ["input_ids", "input_mask", "label_ids"]
         for data in dataset.create_dict_iterator():
             input_data = []
@@ -133,13 +138,12 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path=""):
             print("input_ids shape: {}".format(input_ids.shape))
             print("label_ids shape: {}".format(label_ids.shape))
             print("============= Summrization Testing =============")
-            
            
-            sample = Sample(model,tokenizer=tokenizer,model_config=gpt2_net_cfg,topp_prob=0.92)
+            
             #input_str,ref_str = sample.extract_string_from_tensor(input_ids,mode="pair") 
-            hypo,ref = sample.generate_for_CNN_DAILYMAIL(input_ids,generate_length=100,select_sentence=3)
+            hypo,ref = sample.generate_for_CNN_DAILYMAIL(input_ids,generate_length=30,select_sentence=0,TL_DR=True)
             print("REF str:\n ",ref,"\nHYPO str:\n",hypo,"\n")
-            print("LENGTH: ",len(ref),"   and   ",len(hypo),"\n")
+            #print("LENGTH: ",len(ref[1]),"   and   ",len(hypo[1]),"\n")
             callback.update(ref, hypo)
         print("==============================================")
         eval_result_print(metric, callback)
