@@ -79,12 +79,14 @@ class Rouge():
     Get Rouge Score
     '''
     def __init__(self):
-        self.Rouge1 = -1.0
-        self.Rouge2 = -1.0
-        self.RougeL = -1.0
+        self.Rouge1 = 0.0
+        self.Rouge2 = 0.0
+        self.RougeL = 0.0
         self.total_num = 0
         
     def update(self,hypothesis,targets):
+        #batch_size = len(hypothesis)
+        #for i in range(batch_size):
         scores = get_rouge_score(hypothesis,targets)
         self.Rouge1 += scores['rouge-1']['f']*100
         self.Rouge2 += scores['rouge-2']['f']*100
