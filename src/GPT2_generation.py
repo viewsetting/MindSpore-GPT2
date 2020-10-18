@@ -477,7 +477,7 @@ class Sample():
         if int(select_sentence) > 0:
                 # check if there are number of select_sentence of sentences in generated text,if not enough, it will return full generated string
             stop_pos = generate_str.find('.', select_sentence-1)
-            if stop_pos != -1:
+            if stop_pos == -1:
                 stop_pos = len(generate_str)
             generated_summary = generate_str[:stop_pos]
         else:
