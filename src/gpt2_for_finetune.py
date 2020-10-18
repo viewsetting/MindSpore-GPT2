@@ -297,7 +297,7 @@ class GPT2CoQA(nn.Cell):
     def __init__(self, config, is_training, use_one_hot_embeddings=False):
         super(GPT2CoQA, self).__init__()
         self.gpt2 = GPT2CoQAModel(config, is_training, use_one_hot_embeddings)
-        self.loss = nn.SoftmaxCrossEntropyWithLogits(is_grad=False, sparse=True)
+        self.loss = CrossEntropyCalculation(is_training=is_training)
         self.is_training = is_training
         self.num_labels = config.vocab_size
         self.loss = CrossEntropyCalculation(is_training=is_training)
@@ -309,6 +309,7 @@ class GPT2CoQA(nn.Cell):
         shift_logits = logits[:,:-1,:]
         shift_logits = P.Reshape()(shift_logits,(-1,self.num_labels))
         label_ids = P.GatherV2()(label_ids, self.label_indices, 1)
+
         loss = self.loss(shift_logits, label_ids, self.num_labels)
         return P.Cast()(loss, mstype.float32)
 
