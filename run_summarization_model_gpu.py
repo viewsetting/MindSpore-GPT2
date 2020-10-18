@@ -88,8 +88,8 @@ def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoin
 def eval_result_print(metric="Rouge", callback=None):
     """ print eval result"""
     if metric == "Rouge":
-        print("Rouge-1 {:.8f}, Rouge-2 {:.8f}, Rouge-L {:.8f}".format(callback.Rouge1/callback.total_num, callback.Rouge2/callback.total_num,
-                                                                 callback.RougeL / callback.total_num))
+        print("Rouge-1 {:.8f}, Rouge-2 {:.8f}, Rouge-L {:.8f}, Rouge-AVG{:.8f}".format(callback.Rouge1/callback.total_num, callback.Rouge2/callback.total_num,
+                                                                 callback.RougeL / callback.total_num,(callback.Rouge1+callback.Rouge2+callback.RougeL) / callback.total_num))
     else:
         raise ValueError("metric method '{}' not supported, support: [Rouge]. ".format(str(metric)))
 
@@ -114,7 +114,11 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path=""):
 
         gpt2_loss.set_train(False)
         param_dict = load_checkpoint(load_checkpoint_path)
-        load_param_into_net(gpt2_loss, param_dict)
+        reorganized_param_dict = dict()
+        for netName in param_dict:
+            reorganized_param_dict['gpt2.'+netName] = param_dict[netName]
+        reorganized_param_dict['lm_head.weight'] = param_dict['gpt2_embedding_lookup.embedding_table']
+        load_param_into_net(gpt2_loss, reorganized_param_dict)
         model = Model(gpt2_loss)
         tokenizer = Tokenizer(vocab_file='./src/utils/pretrain-data/gpt2-vocab.json',
         merge_file='./src/utils/pretrain-data/gpt2-merges.txt')
