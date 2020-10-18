@@ -135,12 +135,13 @@ class TopKTopP_Filter(nn.Cell):
             (batch_size, vocab_size-min_tokens_to_keep), dtype=float)
         self.safty_mask = Tensor(np.concatenate(
             (self.safty_mask_left, self.safty_mask_right), axis=1), dtype=mstype.float32)
+        assert self.temp > 0.0,'temperature must be positive'
         assert self.k >= 0, 'the top_k number must be no negative.'
         if self.k > 0:
             assert self.min_tokens_to_keep <= self.k, 'K must be larger than or equal to min_token_to_keep for top p sampling'
 
     def construct(self, distribution: Tensor):
-
+        distribution = self.softmax(distribution)
         if self.temp != 1.0:
             distribution = distribution / float(self.temp)
 
@@ -161,7 +162,7 @@ class TopKTopP_Filter(nn.Cell):
 
         # THEN TOP P SAMPLE
         if self.p < 1.0:
-            distribution = self.softmax(distribution)
+            #distribution = self.softmax(distribution)
             cumsum = self.cumsum(distribution, 1)
 
             # calculate remove indices mask, 1 for remove_indices
@@ -194,7 +195,7 @@ class Sample():
         early_stop(bool): whether stop when the model generates <EOS> token. It is functioned when batch_size is 1.
     """
 
-    def __init__(self, decoder, model_config=None, generate_length=1, tokenizer=None,  input_ids=None, input_mask=None,  topk_num=0, topp_prob=1.0, temperature = 1.0,min_tokens_to_keep=1, early_stop=False):
+    def __init__(self, decoder, model_config=None, generate_length=1, tokenizer=None,  input_ids=None, input_mask=None,  topk_num=0, topp_prob=1.0, temperature = 1.0,min_tokens_to_keep=1, early_stop=False,demo_mode=False):
 
         # several checks for string mode or input tensors a.k.a. Tensor mode
         assert model_config is not None, 'Config is a must for sampling.'
@@ -222,16 +223,24 @@ class Sample():
         self.seq_length = model_config.seq_length
         self.batch_size = model_config.batch_size
         self.vocab_size = model_config.vocab_size
-        self.sample_function = P.Multinomial(seed=1)
+        self.sample_function = P.Multinomial(seed=10086)
         self.on_value = Tensor(1.0, mstype.float32)
         self.off_value = Tensor(0.0, mstype.float32)
         self.cast = P.Cast()
+        self.concat = P.Concat()
         self.early_stop = early_stop
+        self.demo_mode = demo_mode
+        self.filter_distribution = TopKTopP_Filter(
+                    self.batch_size, self.vocab_size,k=self.topk_num,p=self.topp_prob,
+                    temperature=self.temperature,min_tokens_to_keep=self.min_tokens_to_keep)
 
         if self.tokenizer is not None:
             self.eos_id = self.tokenizer.eos_token_id
         else:
             self.eos_id = model_config.vocab_size-1
+        
+        if self.demo_mode is True:
+            assert self.batch_size == 1,'Demo mode requires batchsize euqals to 1, but get batch_size={}'.format(self.batch_size)
 
     def extract_string_from_tensor(self, input_ids: Tensor,  mode="pair"):
         """
@@ -246,12 +255,12 @@ class Sample():
             rest_list , list of rest_text, or rest part of text
             If self.batch_size is 1, it will return the first sentence of list, that is to say, the string.
                 Example:
-                for pair mode, if self.batchsize=1, it will return prompt_list[0], reference_list[0]
+                for pair mode, if self.demo_mode is True, it will return prompt_list[0], reference_list[0]
         """
         assert self.tokenizer is not None, 'There is no tokenizer'
-        prompt_list = []
-        reference_list = []
-        rest_list = []
+        prompt_list = [""]*self.batch_size
+        reference_list = [""]*self.batch_size
+        rest_list = [""]*self.batch_size
         eos_text = self.tokenizer.eos_token
         len_eos_text = len(eos_text)
         input_ids = self.reshape(input_ids, (self.batch_size, self.seq_length))
@@ -269,10 +278,10 @@ class Sample():
                 reference_start = prompt_end+len_eos_text
                 reference_end = sentence[reference_start:].find(
                     eos_text, 0)+reference_start
-                prompt_list.append(sentence[prompt_start:prompt_end])
-                reference_list.append(sentence[reference_start:reference_end])
+                prompt_list[batch_idx]=sentence[prompt_start:prompt_end]
+                reference_list[batch_idx]=sentence[reference_start:reference_end]
 
-            if self.batch_size == 1:
+            if self.batch_size == 1 and self.demo_mode is True:
                 return prompt_list[0], reference_list[0]
             else:
                 return prompt_list, reference_list
@@ -286,8 +295,8 @@ class Sample():
                 sentence = self.tokenizer.decode(sentence_list)
                 prompt_start = 0
                 prompt_end = sentence.find(eos_text, 0)
-                prompt_list.append(sentence[prompt_start:prompt_end])
-            if self.batch_size == 1:
+                prompt_list[batch_idx]=sentence[prompt_start:prompt_end]
+            if self.batch_size == 1 and self.demo_mode is True:
                 return prompt_list[0]
             else:
                 return prompt_list
@@ -307,13 +316,13 @@ class Sample():
                 rest_start = reference_end+len_eos_text
                 rest_end = sentence[rest_start:].find(eos_text, 0)+rest_start
 
-                prompt_list.append(sentence[prompt_start:prompt_end])
-                reference_list.append(sentence[reference_start:reference_end])
-                rest_list.append(sentence[rest_start:rest_end])
+                prompt_list[batch_idx]=sentence[prompt_start:prompt_end]
+                reference_list[batch_idx] = sentence[reference_start:reference_end]
+                rest_list[batch_idx]=sentence[rest_start:rest_end]
             
             #return string(s) or list(s), str mode was designed for the benefit of interactive demo which it will
             #return a str that make sense for user and easy to use.
-            if self.batch_size == 1:
+            if self.batch_size == 1 and self.demo_mode is True:
                 return prompt_list[0], reference_list[0], rest_list[0]
             else:
                 return prompt_list, reference_list, rest_list
@@ -327,32 +336,48 @@ class Sample():
         Transform from string to tensor
 
         Args:
-            src_str: string
+            src_str: string or list of strings
         Return:
             input_ids: Tensor(self.batch_size, self.seq_length)
             input_mask: Tensor(self.batch_size, self.seq_length)
             src_len: length of tokens of src_string after decoded by self.tokenzier
         """
+        if type(src_str)==str:
+            src_str = [src_str]
 
         input_shape = (self.batch_size, self.seq_length)
-
-        src_list = self.tokenizer.encode(src_str)
-        src_len = len(src_list)
-        if src_len > self.seq_length:
-            src_list = src_list[:self.seq_length]
-            src_len = self.seq_length
-        ret_dict = self.tokenizer.prepare_for_model(
+        single_sentence_shape = (1,self.seq_length)
+        src_len_list = list()
+        input_ids = None
+        input_mask = None
+        for batch_idx in range(self.batch_size):
+            src_list=self.tokenizer.encode(src_str[batch_idx])
+            #src_list = self.tokenizer.encode(src_str)
+            src_len = len(src_list)
+            if src_len > self.seq_length:
+                src_list = src_list[:self.seq_length]
+                src_len = self.seq_length
+            
+            src_len_list.append(src_len)
+            ret_dict = self.tokenizer.prepare_for_model(
             src_list, max_length=self.model_config.seq_length, add_special_tokens=False)
 
-        input_ids_ = ret_dict['input_ids']
-        input_mask_ = ret_dict['attention_mask']
+            input_ids_list = ret_dict['input_ids']
+            input_mask_list = ret_dict['attention_mask']
 
-        input_ids = self.reshape(
-            Tensor(np.array(input_ids_, dtype=int), dtype=mstype.int32), input_shape)
-        input_mask = self.reshape(
-            Tensor(np.array(input_mask_, dtype=int), dtype=mstype.int32), input_shape)
+            input_ids_tensor = self.reshape(
+            Tensor(np.array(input_ids_list, dtype=int), dtype=mstype.int32), single_sentence_shape)
+            input_mask_tensor = self.reshape(
+            Tensor(np.array(input_mask_list, dtype=int), dtype=mstype.int32), single_sentence_shape)
+            if batch_idx == 0:
+                input_ids = input_ids_tensor
+                input_mask = input_mask_tensor
+            else:
+                input_ids = self.concat((input_ids,input_ids_tensor))
+                input_mask = self.concat((input_mask,input_mask_tensor))
+            
 
-        return input_ids, input_mask, src_len
+        return input_ids, input_mask, src_len_list
 
     
     def generate(self, input_str=None, input_ids=None, generate_length=None):
@@ -370,8 +395,16 @@ class Sample():
 
         if input_str is not None:
             assert self.tokenizer is not None, 'if choose to give input_str, a tokenizer is necessary.'
-        generate_str = ""
-        full_str = input_str
+        generate_str = [""]*self.batch_size
+
+        #type check
+        full_str = None
+        
+        if self.batch_size == 1 and self.demo_mode:
+            full_str = [input_str]
+        else:
+            full_str = input_str
+        
         self.input_ids = input_ids
 
         if generate_length is not None:
@@ -379,17 +412,16 @@ class Sample():
             assert generate_length >= 0, 'generate_length can not be negative.'
             self.generate_length = generate_length
 
-        for _ in range(self.generate_length):
+
+        for i in range(self.generate_length):
 
             # Tensor Mode
             if input_str is None:
                 logits = self.decoder(self.input_ids, self.input_mask)
                 nextword_distribution = self.reshape(
-                    logits[::, len_str-1:len_str:1, ::], (batch_size, -1))
-                filter_distribution = TopKTopP_Filter(
-                    self.batch_size, self.vocab_size,k=self.topk_num,p=self.topp_prob,
-                    temperature=self.temperature,min_tokens_to_keep=self.min_tokens_to_keep)
-                distribution, real_index = filter_distribution(
+                    logits[::, len_str[0]-1:len_str[0]:1, ::], (batch_size, -1))
+                
+                distribution, real_index = self.filter_distribution(
                     nextword_distribution)
                 word_index = self.sample_function(distribution, 1)
 
@@ -404,26 +436,40 @@ class Sample():
 
             # string mode
             else:
+
+                
+                
                 input_ids, input_mask, len_str = self.tensorize_ids_with_masks(
                     full_str)
 
                 logits = self.decoder.predict(input_ids, input_mask)
                 #print("DECODER Finished")
 
-                # (batch_size,seq_length,vocab_size) ---> (batch_size,1,vocab_length) --> (batch_size,vocab_length)
+                # (batch_size,seq_length,vocab_size) ---> concatenate number batch_size of (1,vocab_size) --> (batch_size,vocab_size)
                 nextword_distribution = self.reshape(
-                    logits[::, len_str-1:len_str:1, ::], (self.batch_size, -1))
+                    logits[0, len_str[0]-1:len_str[0]:1, ::], (1, -1))
+
+                if self.batch_size > 1:
+                    for batch_idx in range(1,self.batch_size):
+                        nextword_single_distribution = self.reshape(
+                    logits[batch_idx, len_str[batch_idx]-1:len_str[batch_idx]:1, ::], (1, -1))
+                        nextword_distribution = self.concat((nextword_distribution,nextword_single_distribution))
+                if i==0:
+                    print('[DEBUG INFO] len_str:{}'.format(len_str))
+                    print('[DEBUG INFO] nextword_distribution:{} shape:{}'.format(nextword_distribution[::,:50], nextword_distribution.shape))
                 #next_word_distribution = self.softmax(nextword_distribution)
                 # print("NEXT_WORD",nextword_distribution)
-                filter_distribution = TopKTopP_Filter(
-                    self.batch_size, self.vocab_size, self.topk_num, self.topp_prob, self.min_tokens_to_keep)
-
+               
                 # print("TOPKTOPP")
-                distribution, real_index = filter_distribution(
+                distribution, real_index = self.filter_distribution(
                     nextword_distribution)
-
+                if i==0:
+                    print('[DEBUG INFO] distribution:{} shape:{}'.format(distribution[::,:50],distribution.shape))
                 # (batch_size,vocab_size) --> (batch_size)
                 word_index = self.sample_function(distribution, 1)
+
+                if i==0:
+                    print('[DEBUG INFO] word_index:{} shape:{}'.format(word_index,word_index.shape))
 
                 float_real_index = self.cast(real_index, mstype.float32)
                 result = self.reshape(self.onehot(
@@ -446,10 +492,12 @@ class Sample():
                         break
 
                     next_word_str = self.tokenizer.decode([next_word_index])
-                    full_str += next_word_str
-                    generate_str += next_word_str
-
-        return generate_str, full_str
+                    full_str[batch_idx] += next_word_str
+                    generate_str[batch_idx] += next_word_str
+        if self.batch_size == 1 and self.demo_mode is True:
+            return generate_str[0], full_str[0]
+        else:
+            return generate_str, full_str
 
 
     def generate_for_CNN_DAILYMAIL(self, input_ids, generate_length=100, select_sentence=0, TL_DR=True):
@@ -471,56 +519,56 @@ class Sample():
         article_str, summary_str = self.extract_string_from_tensor(
             input_ids, mode="pair")
         
+
+        generated_summary_list= [""]*self.batch_size
+
+        # print("[Debug INFO] generate_for_CNN_DAILYMAIL: article_str before\n",len(article_str))
+        # print(article_str)
+        
         #pad a <TL,DR;> token(<EOS>) after the string of Article.
         if TL_DR:
-            article_str += (" "+self.tokenizer.eos_token)
+            for article_idx in range(self.batch_size):
+                article_str[article_idx]+=(" "+self.tokenizer.eos_token)
         
-        print("Sample.generate_for_CNN_DAILYMAIL debugging info:\nARTICLE STR:")
+        print("[DEBUG INFO] Sample.generate_for_CNN_DAILYMAIL article_str:")
         print(article_str)
-        generate_str, _ = self.generate(
-            input_str=article_str, generate_length=100)
-        generated_summary = ""
-        if select_sentence > 0:
+
+        generate_str_list, _ = self.generate(
+            input_str=article_str, generate_length=generate_length)
+
+        
+        for article_idx in range(self.batch_size):
+            generate_str = generate_str_list[article_idx]
+            generated_summary = ""
+            if select_sentence > 0:
                 # check if there are number of select_sentence of sentences in generated text,if not enough, it will return full generated string
-            len_generate_str = len(generate_str)
-            search_index = -1
-            for i in range(select_sentence):
-                search_index = generate_str.find('.',search_index+1)
-                if search_index == -1 or search_index >= len_generate_str:
-                    search_index = len_generate_str
-                    break
+                len_generate_str = len(generate_str)
+                search_index = -1
+                for i in range(select_sentence):
+                    search_index = generate_str.find('.',search_index+1)
+                    if search_index == -1 or search_index >= len_generate_str:
+                        search_index = len_generate_str
+                        break
             
-            #increase search_index to add period token('.') if search_index does not overflow.
-            search_index = search_index+1 if search_index<len_generate_str else len_generate_str
-            generated_summary = generate_str[:search_index]
+                #increase search_index to add period token('.') if search_index does not overflow.
+                search_index = search_index+1 if search_index < len_generate_str else len_generate_str
+                generated_summary = generate_str[:search_index]
 
-        else:
-            generated_summary = generate_str
-        return generated_summary, summary_str  # Hypo and Ref
+            else:
+                generated_summary = generate_str
+            generated_summary_list[article_idx] = generated_summary
 
+            # print("[DEBUG INFO] Sample.generate_for_CNN_DAILYMAIL debugging info:\nGENERATED_SUMMARY:")
+            # print(generated_summary_list[article_idx])
+            # print(summary_str[article_idx])
 
-class BeamSearchDecoder(nn.Cell):
-    def __init__(self, model_config, decoder, input_ids=None, beam_width=4, length_penalty_weight=1.0, max_decode_length=64, bos_id=50256):
-        self.model_config = model_config
-        self.batch_size = self.model_config.batch_size
-        self.seq_length = self.model_config.seq_length
-        self.vocab_size = self.model_config.vocab_size
-        self.length_penalty_weight = length_penalty_weight
-        self.max_decode_length = max_decode_length
-        self.topK = P.TopK(sorted=True)
-        self.bos_id = bos_id
-        if input_ids == None:
-            pass
-        else:
-            self.input_ids = input_ids
+        return generated_summary_list, summary_str  # Hypo and Ref
 
-    def construct(self):
-        for _ in range(self.max_decode_length):
-            pass
 
 
 if __name__ == '__main__':
     #s = Sample(None)
+
     pass
 
 
