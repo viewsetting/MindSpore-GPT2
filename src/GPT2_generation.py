@@ -110,7 +110,7 @@ class TopKTopP_Filter(nn.Cell):
 
     """
 
-    def __init__(self, batch_size, vocab_size, k=0, p=1.0, min_tokens_to_keep=1):
+    def __init__(self, batch_size, vocab_size, k=0, p=1.0, temperature = 1.0,min_tokens_to_keep=1):
         super(TopKTopP_Filter, self).__init__()
 
         self.topK = P.TopK(sorted=True)
@@ -119,6 +119,7 @@ class TopKTopP_Filter(nn.Cell):
         self.min_tokens_to_keep = min_tokens_to_keep
         self.k = k
         self.p = p
+        self.temp = temperature
         self.cumsum = P.CumSum()
         self.sample_function = P.Multinomial(seed=1)
         self.onehot = P.OneHot()
@@ -139,6 +140,9 @@ class TopKTopP_Filter(nn.Cell):
             assert self.min_tokens_to_keep <= self.k, 'K must be larger than or equal to min_token_to_keep for top p sampling'
 
     def construct(self, distribution: Tensor):
+
+        if self.temp != 1.0:
+            distribution = distribution / float(self.temp)
 
         values, indices = self.topK(distribution, self.k)
         sorted_indices = None
@@ -190,7 +194,7 @@ class Sample():
         early_stop(bool): whether stop when the model generates <EOS> token. It is functioned when batch_size is 1.
     """
 
-    def __init__(self, decoder, model_config=None, generate_length=1, tokenizer=None,  input_ids=None, input_mask=None,  topk_num=0, topp_prob=1.0, min_tokens_to_keep=1, early_stop=False):
+    def __init__(self, decoder, model_config=None, generate_length=1, tokenizer=None,  input_ids=None, input_mask=None,  topk_num=0, topp_prob=1.0, temperature = 1.0,min_tokens_to_keep=1, early_stop=False):
 
         # several checks for string mode or input tensors a.k.a. Tensor mode
         assert model_config is not None, 'Config is a must for sampling.'
@@ -206,6 +210,7 @@ class Sample():
         self.model_config = model_config
         self.topk_num = topk_num
         self.topp_prob = topp_prob
+        self.temperature = temperature
         self.min_tokens_to_keep = min_tokens_to_keep
         self.input_ids = input_ids
         self.decoder = decoder
@@ -382,7 +387,8 @@ class Sample():
                 nextword_distribution = self.reshape(
                     logits[::, len_str-1:len_str:1, ::], (batch_size, -1))
                 filter_distribution = TopKTopP_Filter(
-                    self.batch_size, self.vocab_size)
+                    self.batch_size, self.vocab_size,k=self.topk_num,p=self.topp_prob,
+                    temperature=self.temperature,min_tokens_to_keep=self.min_tokens_to_keep)
                 distribution, real_index = filter_distribution(
                     nextword_distribution)
                 word_index = self.sample_function(distribution, 1)
@@ -474,12 +480,20 @@ class Sample():
         generate_str, _ = self.generate(
             input_str=article_str, generate_length=100)
         generated_summary = ""
-        if int(select_sentence) > 0:
+        if select_sentence > 0:
                 # check if there are number of select_sentence of sentences in generated text,if not enough, it will return full generated string
-            stop_pos = generate_str.find('.', select_sentence-1)
-            if stop_pos == -1:
-                stop_pos = len(generate_str)
-            generated_summary = generate_str[:stop_pos]
+            len_generate_str = len(generate_str)
+            search_index = -1
+            for i in range(select_sentence):
+                search_index = generate_str.find('.',search_index+1)
+                if search_index == -1 or search_index >= len_generate_str:
+                    search_index = len_generate_str
+                    break
+            
+            #increase search_index to add period token('.') if search_index does not overflow.
+            search_index = search_index+1 if search_index<len_generate_str else len_generate_str
+            generated_summary = generate_str[:search_index]
+
         else:
             generated_summary = generate_str
         return generated_summary, summary_str  # Hypo and Ref
@@ -506,82 +520,8 @@ class BeamSearchDecoder(nn.Cell):
 
 
 if __name__ == '__main__':
-    print('*'*65)
-    print('We are now in testing mode for GPT2_generation.py')
-    print('*'*65)
+    #s = Sample(None)
+    pass
 
-    def set_env(mode="GPU", device_id=0,ckpt_path="/datasets/pretrained_weights/ms_model_medium.ckpt"):
-        from mindspore import context
-        import os
-        from finetune_eval_config import cfg, gpt2_net_cfg
-        import mindspore.common.dtype as mstype
-        from mindspore import log as logger
-        from mindspore.train.model import Model
-        from mindspore.common.tensor import Tensor
-        from mindspore.train.serialization import load_checkpoint, load_param_into_net
-        from utils.tokenization import Tokenizer
-        from mindspore.ops import operations as P
-        from GPT2ForSummarization import GPT2ForPredictNext
-        from GPT2ForLanguageModel import  GPT2LanguageModel
-        #from GPT2_generation import Sample
-        import numpy as np
-        context.set_context(mode=context.GRAPH_MODE,
-                            device_target=mode, device_id=device_id)
-        context.set_auto_parallel_context(parallel_mode="stand_alone")
-        print('set context as: {}, using device {}.'.format(mode, device_id))
-
-        gpt2_loss =  GPT2ForPredictNext(config=gpt2_net_cfg,
-                               is_training=False,
-                               use_one_hot_embeddings=False)
-        load_checkpoint_path = ckpt_path
-        gpt2_loss.set_train(False)
-        param_dict = load_checkpoint(load_checkpoint_path)
-
-        param_dict_ = {}
-
-        print("====process param_dict========")
-        for msname in param_dict:
-            param_dict_['gpt2.'+msname] = param_dict[msname]
-        param_dict_['lm_head.weight'] = param_dict['gpt2_embedding_lookup.embedding_table']
-        print("====load params into model====")
-        load_param_into_net(gpt2_loss, param_dict_)
-
-        model = Model(gpt2_loss)
-        return model,gpt2_net_cfg
-
-    def get_random_tensor(shape: Union[list, tuple], mode='randn', dtype=mstype.float32):
-        if mode == 'randn':
-            np_array = np.random.randn(*shape)
-            return Tensor(np_array, dtype=dtype)
-        if mode == 'uniform':
-            np_array = np.random.uniform(size=shape)
-            return Tensor(np_array, dtype=dtype)
-        pass
-
-    def list2tensor(lst, dtype=mstype.float32):
-        return Tensor(np.array(lst), dtype=dtype)
-
-    print('Set Running Env and Load Model')
-    gpt2,config = set_env()
-    gen_len = 200
-
-    
-    tokenizer = Tokenizer(vocab_file='./src/utils/pretrain-data/gpt2-vocab.json',
-                      merge_file='./src/utils/pretrain-data/gpt2-merges.txt')
-
-    sample = Sample(gpt2,generate_length=gen_len,tokenizer = tokenizer,
-            model_config=config,topk_num=0,topp_prob=0.92,min_tokens_to_keep=1)
-    
-    while True:
-        raw_text = input("Model Prompt >>>")
-        while not raw_text:
-            print('Prompt should not be empty!')
-            raw_text = input("Model prompt >>> ")
-        gen_str,full_str = sample.generate(input_str=raw_text,generate_length=gen_len)
-        print("*"*100)
-        print("GPT2 Generation >>>",gen_len)
-        print("*"*100)
-        print("Full Text Here >>>",full_str)
-        print("*"*100)
 
     
