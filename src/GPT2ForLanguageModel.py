@@ -26,13 +26,10 @@ class GPT2LanguageModel(nn.Cell):
                                weight_init=TruncatedNormal(config.initializer_range),
                                has_bias=True).to_float(config.compute_type)
         self.dropout = nn.Dropout(1 - config.hidden_dropout)
-        self.print = P.Print()
 
     def construct(self, input_ids, input_mask):
         output, _ = self.gpt2(input_ids, input_mask)
         output = self.cast(output, self.dtype)
-        output = self.dropout(output)
-        self.print('GPT2LanguageModel dropout: ', output)
         batch_size, seq_length, d_model = self.shape(output)
         output_reshape = P.Reshape()(output, (-1, d_model)) # [batch_size * seq_len, d_model]
         logits = self.dense1(output_reshape)
