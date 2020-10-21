@@ -17,7 +17,7 @@ from mindspore.nn.wrap.loss_scale import DynamicLossScaleUpdateCell
 from mindspore.nn import AdamWeightDecay, Lamb, Momentum
 from mindspore.common.tensor import Tensor
 from mindspore.train.model import Model
-from mindspore.train.callback import CheckpointConfig, ModelCheckpoint, TimeMonitor
+from mindspore.train.callback import CheckpointConfig, ModelCheckpoint, TimeMonitor, LossMonitor
 from mindspore.train.serialization import load_checkpoint, load_param_into_net
 
 def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoint_path="", epoch_num=1):
@@ -64,23 +64,30 @@ def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoin
 
     # load checkpoint into network
     ckpt_config = CheckpointConfig(save_checkpoint_steps=steps_per_epoch, keep_checkpoint_max=1)
-    ckpoint_cb = ModelCheckpoint(prefix="gpt2_language_model",
+    ckpoint_cb = ModelCheckpoint(prefix="gpt2_language_model_wiki2",
                                  directory=None if save_checkpoint_path == "" else save_checkpoint_path,
                                  config=ckpt_config)
     param_dict = load_checkpoint(load_checkpoint_path)
 
-    # reload the pretrained weight of final linear layer
-    print(' ---- set the weights of final linear weights to weights of gpt2 token embedding --- ')
-    param_dict['gpt2.dense1.weight'] = param_dict['gpt2_embedding_lookup.embedding_table']
+    final_param_dict = {}
+    for k, v in param_dict.items():
+        final_param_dict['gpt2_loss.gpt2.gpt2.' + k] = param_dict[k]
+    # set the weights of final linear weights to weights of gpt2 token embedding
+    final_param_dict['gpt2_loss.gpt2.dense1.weight'] = param_dict['gpt2_embedding_lookup.embedding_table']
 
-    load_param_into_net(network, param_dict)
+    load_param_into_net(network, final_param_dict)
+    print("Load new parameter successfully!\n")
 
     update_cell = DynamicLossScaleUpdateCell(loss_scale_value=2**32, scale_factor=2, scale_window=1000)
     netwithgrads = GPT2FinetuneCell(network, optimizer=optimizer, scale_update_cell=update_cell)
     netwithgrads.set_train(True)
 
+    loss_cb = LossMonitor()
+
     model = Model(netwithgrads)
-    callbacks = [TimeMonitor(dataset.get_dataset_size()), LossCallBack(dataset.get_dataset_size()), ckpoint_cb]
+    # callbacks = [TimeMonitor(dataset.get_dataset_size()), LossCallBack(dataset.get_dataset_size()), ckpoint_cb]
+    callbacks = [TimeMonitor(dataset.get_dataset_size()), loss_cb, ckpoint_cb]
+
     print("============== Starting Training ==============")
     model.train(epoch_num, dataset, callbacks=callbacks)
     print("============== Training Success ==============")
@@ -154,6 +161,8 @@ def do_eval(dataset=None, metric=None, load_checkpoint_path=""):
         final_param_dict = {}
         for k, v in param_dict.items():
             final_param_dict['gpt2_loss.gpt2.gpt2.' + k] = param_dict[k]
+
+
         # set the weights of final linear weights to weights of gpt2 token embedding
         final_param_dict['gpt2_loss.gpt2.dense1.weight'] = param_dict['gpt2_embedding_lookup.embedding_table']
 
@@ -164,14 +173,14 @@ def do_eval(dataset=None, metric=None, load_checkpoint_path=""):
         #     print('Parameter: {}'.format(v))
         #     print('================================')
         # print('the weights of linear:\n {}'.format(gpt2_loss.gpt2.dense1.weight))
-        load_param_into_net(gpt2_loss, param_dict)
-        dict_ = gpt2_loss.parameters_dict()
-        for k, v in dict_.items():
-            print('name: {}\n'.format(k))
-            print('value: {}'.format(dict_[k]))
-            print("--------------------------------\n")
+        load_param_into_net(gpt2_loss, final_param_dict)
+        # dict_ = gpt2_loss.parameters_dict()
+        # for k, v in dict_.items():
+        #     print('name: {}\n'.format(k))
+        #     print('value: {}'.format(dict_[k]))
+        #     print("--------------------------------\n")
 
-        exit()
+        # exit()
 
 
         print("load new parameter successfully!\n")
@@ -179,17 +188,26 @@ def do_eval(dataset=None, metric=None, load_checkpoint_path=""):
 
         columns_list = ["input_ids", "input_mask", "label_ids"]
         print("================= Testing =================")
+        num_data = 0
+        total_ppl = 0.0
         for data in dataset.create_dict_iterator():
             input_data = []
             for i in columns_list:
                 input_data.append(data[i])
             input_ids, input_mask, label_ids = input_data
-            print("input_ids_type: {}".format(type(input_ids)))
-            print("label_ids_type: {}".format(type(label_ids)))
+            print("input_ids_shape: {}".format(input_ids.shape))
+            print("input_mask_shape: {}".format(input_mask.shape))
+            print("label_ids_shape: {}".format(label_ids.shape))
+
             loss = model.predict(input_ids, input_mask, label_ids)
             loss = loss.asnumpy()
-            print("Loss: {:.6f}".format(loss))
-            print("PPL: {}\n\n".format(math.exp(float(loss))))
+            ppl = math.exp(float(loss))
+            print("Loss: {:.6f}".format(float(loss)))
+            print("PPL: {}\n\n".format(ppl))
+            num_data += 1
+            total_ppl += ppl
+        avg_ppl = total_ppl / num_data
+        print("Average PPL: {:.6f}".format(avg_ppl))    
         print("************** Testing Finished **************")
     else:
         raise ValueError("metric method not supported, support: [accuracy, ppl]")
@@ -206,9 +224,9 @@ def run_languagemodel():
                         help="ID of target device. ")
     parser.add_argument("--metric_method", type=str, default="PPL",
                         help="The eval method including [Accuracy, PPL]. Default: Accuracy.") # DOING
-    parser.add_argument("--do_train", type=str, default="false",
+    parser.add_argument("--do_train", type=str, default="true",
                         help="Enable train. Default: false.")
-    parser.add_argument("--do_eval", type=str, default="true",
+    parser.add_argument("--do_eval", type=str, default="false",
                         help="Enable evaluation. Default: false.")
     parser.add_argument("--epoch_num", type=int, default=5,
                         help="Epoch number. Default: 1.")
@@ -216,7 +234,7 @@ def run_languagemodel():
                         help="Enable train data shuffle. Default: true.")
     parser.add_argument("--eval_data_shuffle", type=str, default="false",
                         help="Enable eval data shuffle. Default: false.")
-    parser.add_argument("--save_finetune_ckpt_path", type=str, default="/data/tju/pretrained-weight/",
+    parser.add_argument("--save_finetune_ckpt_path", type=str, default="./pretrained-weight/",
                         help="Save the checkpoint path.")
     ## modify
     parser.add_argument("--load_pretrain_ckpt_path", type=str, default="./pretrained-weight/mindspore_model_small.ckpt",
