@@ -10,54 +10,27 @@ import mindspore.common.dtype as mstype
 from mindspore.nn.wrap.grad_reducer import DistributedGradReducer
 from mindspore import context
 from mindspore.context import ParallelMode
-# from mindspore.communication.management import get_group_size
 from mindspore.parallel._utils import _get_device_num, _get_parallel_mode
-#from .GPT2ForLambada import GPT2LambadaModel
-#from .GPT2ForCBT import GPT2CBTModel
-#from .GPT2ForTranslation import GPT2TranslationModel
-#from .GPT2ForLanguageModel import GPT2LanguageModel
-#from .GPT2ForReadComprehension import GPT2CoQAModel
+from .grad_clip import GRADIENT_CLIP_TYPE, GRADIENT_CLIP_VALUE, ClipGradients
+from src.utils.CrossEntropy import CrossEntropyCalculationWithMask
+from .GPT2ForLambada import GPT2LambadaModel
+from .GPT2ForCBT import GPT2CBTModel
+from .GPT2ForTranslation import GPT2TranslationModel
+from .GPT2ForLanguageModel import GPT2LanguageModel
+from .GPT2ForReadComprehension import GPT2CoQAModel
 from .GPT2ForSummarization import GPT2ForPredictNext
-from src.utils.CrossEntropy import CrossEntropyCalculation
-
-GRADIENT_CLIP_TYPE = 1
-GRADIENT_CLIP_VALUE = 1.0
-
-clip_grad = C.MultitypeFuncGraph("clip_grad")
-
-
-# pylint: disable=consider-using-in
-@clip_grad.register("Number", "Number", "Tensor")
-def _clip_grad(clip_type, clip_value, grad):
-    """
-    Clip gradients.
-    Inputs:
-        clip_type (int): The way to clip, 0 for 'value', 1 for 'norm'.
-        clip_value (float): Specifies how much to clip.
-        grad (tuple[Tensor]): Gradients.
-    Outputs:
-        tuple[Tensor], clipped gradients.
-    """
-    if clip_type != 0 and clip_type != 1:
-        return grad
-    dt = F.dtype(grad)
-    if clip_type == 0:
-        new_grad = C.clip_by_value(grad, F.cast(F.tuple_to_array((-clip_value,)), dt),
-                                   F.cast(F.tuple_to_array((clip_value,)), dt))
-    else:
-        new_grad = nn.ClipByNorm()(grad, F.cast(F.tuple_to_array((clip_value,)), dt))
-    return new_grad
 
 
 grad_scale = C.MultitypeFuncGraph("grad_scale")
 reciprocal = P.Reciprocal()
+
 @grad_scale.register("Tensor", "Tensor")
 def tensor_grad_scale(scale, grad):
-    return grad * reciprocal(scale)
-
+    return grad * F.cast(reciprocal(scale), F.dtype(grad))
 
 _grad_overflow = C.MultitypeFuncGraph("_grad_overflow")
 grad_overflow = P.FloatStatus()
+
 @_grad_overflow.register("Tensor")
 def _tensor_grad_overflow(grad):
     return grad_overflow(grad)
@@ -73,7 +46,7 @@ class GPT2FinetuneCell(nn.Cell):
         self.network.set_grad()
         self.weights = optimizer.parameters
         self.optimizer = optimizer
-        self.grad = C.GradOperation(True, get_by_list=True, sens_param=True)
+        self.grad = C.GradOperation(get_by_list=True, sens_param=True)
         self.reducer_flag = False
         self.allreduce = P.AllReduce()
         self.parallel_mode = context.get_auto_parallel_context("parallel_mode")
@@ -88,6 +61,7 @@ class GPT2FinetuneCell(nn.Cell):
             degree = _get_device_num()
             self.grad_reducer = DistributedGradReducer(optimizer.parameters, mean, degree)
         self.is_distributed = (self.parallel_mode != ParallelMode.STAND_ALONE)
+        self.clip_gradients = ClipGradients()
         self.cast = P.Cast()
         self.gpu_target = False
         if context.get_context("device_target") == "GPU":
@@ -118,11 +92,13 @@ class GPT2FinetuneCell(nn.Cell):
         """
         GPT-2 Finetune.
         Construct network.
+
         Args:
             input_ids (Tensor): Source sentence.
             input_mask (Tensor): Source padding mask.
             label_ids (Tensor): Target sentence.
             sens (Tensor): Loss sen.
+
         Returns:
             Tuple[Tensor, Tensor, Tensor], loss, overflow, sen.
         """
@@ -141,14 +117,15 @@ class GPT2FinetuneCell(nn.Cell):
             init = self.alloc_status()
             clear_before_grad = self.clear_before_grad(init)
             F.control_depend(loss, init)
-            self.depend_parameter_use(clear_before_grad, scaling_sens)
+            # self.depend_parameter_use(clear_before_grad, scaling_sens)
         grads = self.grad(self.network, weights)(input_ids,
                                                  input_mask,
                                                  label_ids,
                                                  self.cast(scaling_sens,
                                                            mstype.float32))
         grads = self.hyper_map(F.partial(grad_scale, scaling_sens), grads)
-        grads = self.hyper_map(F.partial(clip_grad, GRADIENT_CLIP_TYPE, GRADIENT_CLIP_VALUE), grads)
+        grads = self.clip_gradients(grads, GRADIENT_CLIP_TYPE, GRADIENT_CLIP_VALUE)
+        # grads = self.hyper_map(F.partial(clip_grad, GRADIENT_CLIP_TYPE, GRADIENT_CLIP_VALUE), grads)
         if self.reducer_flag:
             # apply grad reducer on grads
             grads = self.grad_reducer(grads)
@@ -159,12 +136,10 @@ class GPT2FinetuneCell(nn.Cell):
             F.control_depend(grads, flag)
             F.control_depend(flag, flag_sum)
         else:
-           # print("====\n",type(grads),"=====\n")
             flag_sum = self.hyper_map(F.partial(_grad_overflow), grads)
             flag_sum = self.addn(flag_sum)
-            #convert flag_num to scalar
+            # convert flag_num to scalar
             flag_sum = self.reshape(flag_sum, (()))
-            #flag_sum = 1
         if self.is_distributed:
             flag_reduce = self.allreduce(flag_sum)
             cond = self.less_equal(self.base, flag_reduce)
@@ -186,7 +161,7 @@ class GPT2LM(nn.Cell):
         super(GPT2LM, self).__init__()
         self.gpt2 = GPT2LanguageModel(config, is_training, use_one_hot_embeddings)
         self.num_labels = config.vocab_size
-        self.loss = CrossEntropyCalculation(is_training=is_training, num_labels=self.num_labels, config=config)
+        self.loss = CrossEntropyCalculationWithMask(is_training=is_training, num_labels=self.num_labels, config=config)
         self.is_training = is_training
         self.log_softmax = P.LogSoftmax(axis=-1)
         self.reshape = P.Reshape()
