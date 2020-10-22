@@ -1,5 +1,5 @@
 import mindspore.nn as nn
-from mindspore.ops import operation as P
+from mindspore.ops import operations as P
 from .GPT2_model import GPT2Model
 from .weight_init import weight_variable
 
