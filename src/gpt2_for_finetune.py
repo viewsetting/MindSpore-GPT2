@@ -251,7 +251,7 @@ class GPT2Translation(nn.Cell):
         super(GPT2Translation, self).__init__()
         self.gpt2 = GPT2TranslationModel(config, is_training, use_one_hot_embeddings)
         self.num_labels = config.vocab_size
-        self.loss = CrossEntropyCalculation(is_training=is_training)
+        self.loss = CrossEntropyCalculationWithMask(is_training=is_training,num_labels=self.num_labels, config=config)
         self.is_training = is_training
         self.log_softmax = P.LogSoftmax(axis=-1)
         self.reshape = P.Reshape()
@@ -265,10 +265,12 @@ class GPT2Translation(nn.Cell):
 
         shift_logits = translation_logits[:, :-1, :] # [batch_size, seq_length - 1, vocab_size]
         shift_logits = self.reshape(shift_logits, (-1, self.num_labels)) # [batch * (seq_length - 1), vocab_size]
-        label_ids = self.gather(label_ids, self.label_indices, 1) # [batch, seq_len -1]
+        label_ids = label_ids[::,1:] # [batch, seq_len -1]
 
-        loss = self.loss(shift_logits, label_ids, self.num_labels)
-        return self.cast(loss, mstype.float32)
+        shift_logits = self.log_softmax(shift_logits)
+        input_mask = input_mask[::, 1:]
+        loss = self.loss(shift_logits, label_ids, input_mask)
+        return loss
 
 
 class GPT2CoQA(nn.Cell):
@@ -292,7 +294,7 @@ class GPT2CoQA(nn.Cell):
         return P.Cast()(loss, mstype.float32)
 
 class GPT2Summarization(nn.Cell):
-    def __init__(self, config, is_training, use_one_hot_embeddings=False):
+    def __init__(self, config=None, is_training=None, use_one_hot_embeddings=False):
         super(GPT2Summarization, self).__init__()
         self.gpt2 = GPT2ForPredictNext(config, is_training, use_one_hot_embeddings)
         self.is_training = is_training
@@ -302,16 +304,21 @@ class GPT2Summarization(nn.Cell):
         self.shape = P.Shape()
         self.batch_size = config.batch_size
         self.seq_length = config.seq_length
+        self.vocab_size = config.vocab_size
         self.cast = P.Cast()
-        self.loss_function = CrossEntropyCalculation(num_labels=config.vocab_size,is_training=self.is_training)
+        self.loss_function = CrossEntropyCalculationWithMask(num_labels=self.vocab_size,is_training=self.is_training,config=config)
     def construct(self, input_ids,input_mask,label_ids):
         output = self.gpt2(input_ids,input_mask)
 
-        pre_lm_logits = output[:self.batch_size, :self.seq_length-1, :]
+        pre_lm_logits = output[::, :-1, ::]
 
-        shift_squeezed_logits = self.reshape(
-            pre_lm_logits, (-1, pre_lm_logits.shape[-1]))
-        shift_squeezed_labels = self.reshape(label_ids[:, 1:], (-1,))
+        shift_squeezed_logits = self.reshape(pre_lm_logits, (-1, self.vocab_size))
+        shift_squeezed_labels = label_ids[::, 1:]
 
-        loss = self.loss_function(shift_squeezed_logits, shift_squeezed_labels)
-        return self.cast(loss, mstype.float32)
+        input_mask = input_mask[::, 1:]
+
+        shift_squeezed_logits =  self.log_softmax(shift_squeezed_logits)
+
+        loss = self.loss_function(shift_squeezed_logits, shift_squeezed_labels,input_mask)
+        return loss
+        #return self.cast(loss, mstype.float32)
