@@ -72,14 +72,18 @@ def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoin
                                  directory=None if save_checkpoint_path == "" else save_checkpoint_path,
                                  config=ckpt_config)
     param_dict = load_checkpoint(load_checkpoint_path)
-    load_param_into_net(network, param_dict)
+    reorganized_param_dict = dict()
+    for netName in param_dict:
+        reorganized_param_dict['gpt2.'+netName] = param_dict[netName]
+    reorganized_param_dict['lm_head.weight'] = param_dict['gpt2_embedding_lookup.embedding_table']
+    load_param_into_net(network, reorganized_param_dict)
 
     update_cell = DynamicLossScaleUpdateCell(loss_scale_value=2**32, scale_factor=2, scale_window=1000)
     netwithgrads = GPT2FinetuneCell(network, optimizer=optimizer, scale_update_cell=update_cell)
     netwithgrads.set_train(True)
-
+    loss_cb = LossMonitor()
     model = Model(netwithgrads)
-    callbacks = [TimeMonitor(dataset.get_dataset_size()), LossCallBack(dataset.get_dataset_size()), ckpoint_cb]
+    callbacks = [TimeMonitor(dataset.get_dataset_size()), loss_cb, ckpoint_cb]
     print("============== Starting Training For Summrization Task ==============")
     model.train(epoch_num, dataset, callbacks=callbacks)
     print("============== Summrization Training Success ==============")
@@ -171,16 +175,16 @@ def run_summarization():
     parser.add_argument("--do_eval", type=str, default="false",
                         help="Enable evaluation. Default: false.")
     parser.add_argument("--epoch_num", type=int, default=2,
-                        help="Epoch number. Default: 1.")
+                        help="Epoch number. Default: 2.")
     parser.add_argument("--train_data_shuffle", type=str, default="true",
                         help="Enable train data shuffle. Default: true.")
     parser.add_argument("--eval_data_shuffle", type=str, default="false",
                         help="Enable eval data shuffle. Default: false.")
     parser.add_argument("--save_finetune_ckpt_path", type=str, default="/datasets/pretrained_weights/saved/",
                         help="Save the checkpoint path.")
-    parser.add_argument("--load_pretrain_ckpt_path", type=str, default="/datasets/pretrained_weights/ms_model_medium.ckpt",
+    parser.add_argument("--load_pretrain_ckpt_path", type=str, default="/datasets/pretrained_weights/ms_model_small.ckpt",
                         help="Load the checkpoint file path.")
-    parser.add_argument("--load_finetune_ckpt_path", type=str, default="/datasets/pretrained_weights/ms_model_medium.ckpt",
+    parser.add_argument("--load_finetune_ckpt_path", type=str, default="/datasets/pretrained_weights/ms_model_small.ckpt",
                         help="Load the checkpoint file path.")
     parser.add_argument("--train_data_file_path", type=str, default="/datasets/cnn_dailymail",
                         help="Data path, it is better to use absolute path")
@@ -203,16 +207,17 @@ def run_summarization():
 
     device = args_opt.device_target
     if device == "GPU":
-        context.set_context(mode=context.GRAPH_MODE, device_target="GPU", device_id=args_opt.device_id)
+        context.set_context(mode=context.GRAPH_MODE, device_target="GPU", device_id=args_opt.device_id,max_call_depth=3000)
         context.set_auto_parallel_context(parallel_mode="stand_alone")
     else:
         raise Exception("Device target error, Ascend is supported.")
 
-    gpt2_loss = GPT2Summarization(config=gpt2_net_cfg,
-                         is_training=True,
-                         use_one_hot_embeddings=False)
+    
 
     if args_opt.do_train.lower() == "true":
+        gpt2_loss = GPT2Summarization(config=gpt2_net_cfg,
+                         is_training=True,
+                         use_one_hot_embeddings=False)
         print("============== Start Loading Train Dataset ==============")
         train_dataset = create_cnn_dailymail_dataset(
             dataset_path="/datasets/cnn_dailymail/cnn_dailymail-test-mindrecord")
