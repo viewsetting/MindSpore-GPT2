@@ -25,12 +25,18 @@ python create_data.py --input_file /data/tju/cnn_dailymail_train.txt --output_fi
 
 def create_instance(tokenizer, text, max_length=None):
     sentence = text.strip().split("\t")
-
+    #print("[debug info]: ",sentence[0],"\n",sentence[1])
     # len(sentence) == 1:
     ids = tokenizer.encode(sentence[0])
     pair_ids = None
     if len(sentence) == 2:
         pair_ids = tokenizer.encode(sentence[1])
+    if len(sentence)==3:
+        article = sentence[0]
+        for i in range(1,len(sentence)-1):
+            article+=sentence[i]
+        ids = tokenizer.encode(article)
+        pair_ids = tokenizer.encode(sentence[-1])
 
     output = tokenizer.prepare_for_model(ids=ids,
                                          pair_ids=pair_ids,
@@ -69,9 +75,10 @@ def main():
     parser.add_argument("--max_seq_length", type=int, required=True, help='Maximum sequence length. ')
     parser.add_argument("--vocab_file", type=str, required=False, help='url of gpt2-vocab.json ',default='./utils/pretrain-data/gpt2-vocab.json')
     parser.add_argument("--merge_file", type=str, required=False, help='url of gpt2-merges.txt ',default='./utils/pretrain-data/gpt2-merges.txt')
+    parser.add_argument("--mode",type=str,required=False,default='normal',help='mode of dataset creation')
     args = parser.parse_args()
 
-    tokenizer = tokenization.Tokenizer(vocab_file=args.vocab_file,merge_file=args.merge_file)
+    tokenizer = tokenization.Tokenizer(vocab_file=args.vocab_file,merge_file=args.merge_file,mode=args.mode)
     input_file = args.input_file
     logging.info("***** Reading from input files *****")
     logging.info("Input File: %s", input_file)
