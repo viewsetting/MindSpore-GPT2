@@ -5,7 +5,7 @@ from .weight_init import weight_variable
 
 class GPT2CBTModel(nn.Cell):
     def __init__(self, config, is_training, use_one_hot_embeddings=False, num_labels=10):
-        super(GPT2CBT, self).__init__()
+        super(GPT2CBTModel, self).__init__()
         if not is_training:
             config.hidden_dropout = 0.0
 
