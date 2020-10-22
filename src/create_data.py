@@ -31,7 +31,7 @@ def create_instance(tokenizer, text, max_length=None):
     pair_ids = None
     if len(sentence) == 2:
         pair_ids = tokenizer.encode(sentence[1])
-    if len(sentence)==3:
+    if len(sentence)>=3:
         article = sentence[0]
         for i in range(1,len(sentence)-1):
             article+=sentence[i]
