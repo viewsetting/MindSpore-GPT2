@@ -4,7 +4,7 @@ from mindspore import Tensor
 from mindspore.common import dtype as mstype
 from mindspore.ops import operations as P
 from mindspore.common.initializer import Normal,TruncatedNormal
-from .utils.CrossEntropy import CrossEntropyCalculation
+#from .utils.CrossEntropy import CrossEntropyCalculation
 from scipy.special import softmax
 import numpy as np
 
@@ -34,7 +34,7 @@ class GPT2ForPredictNext(nn.Cell):
             is_training = is_training)
         '''
         self.reshape = P.Reshape()
-        self.softmax = P.Softmax(axis=-1)
+        self.softmax = P.LogSoftmax(axis=-1)
         self.log_softmax = P.LogSoftmax(axis=-1)
         self.batch_size = config.batch_size
         self.vocab_size = config.vocab_size
@@ -220,9 +220,12 @@ class GPT2ForPredictNext(nn.Cell):
         #print_ = P.Print()
         #self.print('======\n','======\n')
         #lm_logits = self.log_softmax(lm_logits)
+        
         lm_logits = self.reshape(lm_logits, (batch_size, sequence_length, -1))
 
         loss = None
+
+        
 
         # pre_lm_logits = lm_logits[:batch_size, :sequence_length-1, ...]
 
