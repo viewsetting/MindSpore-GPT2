@@ -13,7 +13,7 @@ class GPT2TranslationModel(nn.Cell):
         self.vocab_size_en = config.vocab_size
         self.cast = P.Cast()
         self.shape = P.Shape()
-        self.log_softmax = P.LogSoftmax(axis=-1)
+        #self.log_softmax = P.LogSoftmax(axis=-1)
 
         self.dtype = config.dtype
         self.dense1 = nn.Dense(config.d_model,
@@ -30,7 +30,7 @@ class GPT2TranslationModel(nn.Cell):
         output_reshape = P.Reshape()(output, (-1, d_model)) # [batch_size * seq_len, d_model]
         logits = self.dense1(output_reshape)
         logits = self.cast(logits, self.dtype)
-        logits = self.log_softmax(logits)
+        #logits = self.log_softmax(logits)
         translation_logits = P.Reshape()(logits, (batch_size, seq_length, self.vocab_size)) # [batch_size, seq_len, vocab]
 
         return translation_logits
