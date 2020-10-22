@@ -1,6 +1,6 @@
 import mindspore.nn as nn
 from mindspore.common.initializer import TruncatedNormal
-from GPT2_model import GPT2Model
+from .GPT2_model import GPT2Model
 from mindspore.ops import operations as P
 
 
