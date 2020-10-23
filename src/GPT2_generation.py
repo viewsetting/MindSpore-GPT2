@@ -564,11 +564,13 @@ class Sample():
                 generated_summary = generate_str
             if generated_summary == '':
                 generated_summary = generate_str
-                if generated_summary == '':
-                    generated_summary = '<empty>'
+               
             if self.tokenizer.eos_token in generated_summary:
                 cut_pos = generated_summary.find(self.tokenizer.eos_token,0)
                 generated_summary = generated_summary[:cut_pos]
+                
+            if generated_summary == '':
+                generated_summary = '<empty>'
             generated_summary_list[article_idx] = generated_summary
 
             # print("[DEBUG INFO] Sample.generate_for_CNN_DAILYMAIL debugging info:\nGENERATED_SUMMARY:")
