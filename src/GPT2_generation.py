@@ -564,8 +564,10 @@ class Sample():
                 generated_summary = generate_str
             if generated_summary == '':
                 generated_summary = generate_str
-            if self.eos_token in generated_summary:
-                cut_pos = generated_summary.find(self.eos_token,0)
+                if generated_summary == '':
+                    generated_summary = '<empty>'
+            if self.tokenizer.eos_token in generated_summary:
+                cut_pos = generated_summary.find(self.tokenizer.eos_token,0)
                 generated_summary = generated_summary[:cut_pos]
             generated_summary_list[article_idx] = generated_summary
 
