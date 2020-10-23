@@ -8,7 +8,7 @@ from src.gpt2_for_finetune import GPT2Translation,GPT2FinetuneCell
 from src.finetune_eval_config import cfg, gpt2_net_cfg
 from src.utils.metric_method import Rouge,moses_multi_bleu
 from mindspore.nn import Accuracy
-from src.dataset import create_cnn_dailymail_dataset
+from src.dataset import create_translation_dataset
 from src.utils.lr_schedule import GPT2LearningRate
 from src.utils.losscallback import LossCallBack
 import mindspore.common.dtype as mstype
@@ -225,14 +225,14 @@ def run_summarization():
                          is_training=True,
                          use_one_hot_embeddings=False)
         print("============== Start Loading Train Dataset ==============")
-        train_dataset = create_cnn_dailymail_dataset(
-            dataset_path="/datasets/cnn_dailymail/cnn_dailymail-test-mindrecord")
+        train_dataset = create_translation_dataset(
+            dataset_path="/datasets/1M/1M_en-fr-train-mindrecord")
         do_train(train_dataset, gpt2_loss, load_pretrain_ckpt_path, save_finetune_ckpt_path, epoch_num,translate_direction)
 
     if args_opt.do_eval.lower() == "true":
         print("============ Start Loading Evaluation Dataset ============")
-        eval_dataset = create_cnn_dailymail_dataset(
-            dataset_path="/datasets/cnn_dailymail/cnn_dailymail-test-mindrecord")
+        eval_dataset = create_translation_dataset(
+            dataset_path="/datasets/1M/1M_en_fr-test-mindrecord")
         do_eval(eval_dataset, GPT2TranslationModel, metric, load_finetune_ckpt_path,translate_direction)
 
 
