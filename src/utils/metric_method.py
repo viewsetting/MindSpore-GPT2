@@ -3,8 +3,8 @@ import numpy as np
 import tempfile
 import re
 import subprocess
-from rouge_score import get_rouge_score
-from bleu_score import sum_bleu
+from .rouge_score import get_rouge_score
+from .bleu_score import sum_bleu
 class Accuracy():
     """
     calculate accuracy
