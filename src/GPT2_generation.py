@@ -195,7 +195,7 @@ class Sample():
         early_stop(bool): whether stop when the model generates <EOS> token. It is functioned when batch_size is 1.
     """
 
-    def __init__(self, decoder, model_config=None, generate_length=1, tokenizer=None,  input_ids=None, input_mask=None,  topk_num=0, topp_prob=1.0, temperature = 1.0,min_tokens_to_keep=1, early_stop=False,demo_mode=False):
+    def __init__(self, decoder, model_config=None, generate_length=1, tokenizer=None,  input_ids=None, input_mask=None,  topk_num=0, topp_prob=1.0, temperature = 1.0,min_tokens_to_keep=1, early_stop=False,demo_mode=False,return_logits=False):
 
         # several checks for string mode or input tensors a.k.a. Tensor mode
         assert model_config is not None, 'Config is a must for sampling.'
@@ -223,13 +223,15 @@ class Sample():
         self.seq_length = model_config.seq_length
         self.batch_size = model_config.batch_size
         self.vocab_size = model_config.vocab_size
-        self.sample_function = P.Multinomial(seed=10086)
+        self.sample_function = P.Multinomial(seed=1)
         self.on_value = Tensor(1.0, mstype.float32)
         self.off_value = Tensor(0.0, mstype.float32)
         self.cast = P.Cast()
         self.concat = P.Concat()
         self.early_stop = early_stop
         self.demo_mode = demo_mode
+        self.return_logits=return_logits
+        
         self.filter_distribution = TopKTopP_Filter(
                     self.batch_size, self.vocab_size,k=self.topk_num,p=self.topp_prob,
                     temperature=self.temperature,min_tokens_to_keep=self.min_tokens_to_keep)
@@ -385,7 +387,7 @@ class Sample():
         base function for text generation
         
         Args
-            input_str: prompt string
+            input_str ([str] or str): prompt string
             generate_length: number of tokens to generate
     
         Return:
@@ -441,7 +443,8 @@ class Sample():
                 
                 input_ids, input_mask, len_str = self.tensorize_ids_with_masks(
                     full_str)
-
+                
+                
                 logits = self.decoder.predict(input_ids, input_mask)
                 #print("DECODER Finished")
 
@@ -495,7 +498,10 @@ class Sample():
                     full_str[batch_idx] += next_word_str
                     generate_str[batch_idx] += next_word_str
         if self.batch_size == 1 and self.demo_mode is True:
-            return generate_str[0], full_str[0]
+            if self.return_logits == True:
+                return generate_str[0], full_str[0],logits
+            else:
+                return generate_str[0], full_str[0]
         else:
             return generate_str, full_str
 
