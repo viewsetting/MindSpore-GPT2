@@ -74,8 +74,8 @@ def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoin
     param_dict = load_checkpoint(load_checkpoint_path)
     reorganized_param_dict = dict()
     for netName in param_dict:
-        reorganized_param_dict['gpt2.'+netName] = param_dict[netName]
-    reorganized_param_dict['lm_head.weight'] = param_dict['gpt2_embedding_lookup.embedding_table']
+        reorganized_param_dict['gpt2.gpt2.'+netName] = param_dict[netName]
+    reorganized_param_dict['gpt2.lm_head.weight'] = param_dict['gpt2_embedding_lookup.embedding_table']
     load_param_into_net(network, reorganized_param_dict)
 
     update_cell = DynamicLossScaleUpdateCell(loss_scale_value=2**32, scale_factor=2, scale_window=1000)
@@ -220,7 +220,7 @@ def run_summarization():
                          use_one_hot_embeddings=False)
         print("============== Start Loading Train Dataset ==============")
         train_dataset = create_cnn_dailymail_dataset(
-            dataset_path="/datasets/cnn_dailymail/cnn_dailymail-test-mindrecord")
+            dataset_path="/datasets/cnn_dailymail/cnn_dailymail-train-mindrecord")
         do_train(train_dataset, gpt2_loss, load_pretrain_ckpt_path, save_finetune_ckpt_path, epoch_num)
 
     if args_opt.do_eval.lower() == "true":
