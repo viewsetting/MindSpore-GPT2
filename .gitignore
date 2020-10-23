@@ -12,3 +12,4 @@ __pycache__
 *.sh
 *.dat
 test_*.py
+src/utils/multi-bleu.perl
