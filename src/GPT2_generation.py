@@ -457,22 +457,22 @@ class Sample():
                         nextword_single_distribution = self.reshape(
                     logits[batch_idx, len_str[batch_idx]-1:len_str[batch_idx]:1, ::], (1, -1))
                         nextword_distribution = self.concat((nextword_distribution,nextword_single_distribution))
-                if i==0:
-                    print('[DEBUG INFO] len_str:{}'.format(len_str))
-                    print('[DEBUG INFO] nextword_distribution:{} shape:{}'.format(nextword_distribution[::,:50], nextword_distribution.shape))
+                # if i==0:
+                #     print('[DEBUG INFO] len_str:{}'.format(len_str))
+                #     print('[DEBUG INFO] nextword_distribution:{} shape:{}'.format(nextword_distribution[::,:50], nextword_distribution.shape))
                 #next_word_distribution = self.softmax(nextword_distribution)
                 # print("NEXT_WORD",nextword_distribution)
                
                 # print("TOPKTOPP")
                 distribution, real_index = self.filter_distribution(
                     nextword_distribution)
-                if i==0:
-                    print('[DEBUG INFO] distribution:{} shape:{}'.format(distribution[::,:50],distribution.shape))
+                # if i==0:
+                #     print('[DEBUG INFO] distribution:{} shape:{}'.format(distribution[::,:50],distribution.shape))
                 # (batch_size,vocab_size) --> (batch_size)
                 word_index = self.sample_function(distribution, 1)
 
-                if i==0:
-                    print('[DEBUG INFO] word_index:{} shape:{}'.format(word_index,word_index.shape))
+                # if i==0:
+                #     print('[DEBUG INFO] word_index:{} shape:{}'.format(word_index,word_index.shape))
 
                 float_real_index = self.cast(real_index, mstype.float32)
                 result = self.reshape(self.onehot(
@@ -536,7 +536,7 @@ class Sample():
             for article_idx in range(self.batch_size):
                 article_str[article_idx]+=(" "+self.tokenizer.eos_token)
         
-        print("[DEBUG INFO] Sample.generate_for_CNN_DAILYMAIL article_str:")
+        #print("[DEBUG INFO] Sample.generate_for_CNN_DAILYMAIL article_str:")
         print(article_str)
 
         generate_str_list, _ = self.generate(
