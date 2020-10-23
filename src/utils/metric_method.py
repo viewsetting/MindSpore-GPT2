@@ -1,6 +1,10 @@
 import math
 import numpy as np
-from .rouge_score import get_rouge_score
+import tempfile
+import re
+import subprocess
+from rouge_score import get_rouge_score
+from bleu_score import sum_bleu
 class Accuracy():
     """
     calculate accuracy
@@ -94,6 +98,30 @@ class Rouge():
         self.total_num += 1
         
 
+class BLEU():
+    def __init__(self,tokenizer=None):
+        self.bleu = float(0.0)
+        self.total_num = int(0)
+        self.tokenizer = tokenizer
+    def update(self,hypotheses,references):
+        
+        hypo_l = []
+        ref_l = []
+        if tokenizer is not None:
+            for hypo,ref in zip(hypotheses,references):
+                hypo_l.append(tokenizer.encode(hypo))
+                ref_l.append(tokenizer.encode(ref))
+        hypotheses = hypo_l
+        references = ref_l
+        #print(hypotheses)
+        
+        bleu_avg,res_list = sum_bleu(references,hypotheses)
+        self.bleu += bleu_avg*100
+        #print(res_list)
+        #self.bleu += moses_multi_bleu(np.array(hypotheses),np.array(references))
+        #print(type(self.bleu))
+        self.total_num += 1
+
 """BLEU metric implementation.
 """
 
@@ -122,7 +150,7 @@ def moses_multi_bleu(hypotheses, references, lowercase=False):
     # metrics_dir = os.path.dirname(os.path.realpath(__file__))
     # bin_dir = os.path.abspath(os.path.join(metrics_dir, "..", "..", "bin"))
     # multi_bleu_path = os.path.join(bin_dir, "tools/multi-bleu.perl")
-    multi_bleu_path = "./utils/multi-bleu.perl"
+    multi_bleu_path = "./src/utils/multi-bleu.perl"
 
     # Dump hypotheses and references to tempfiles
     hypothesis_file = tempfile.NamedTemporaryFile()
@@ -155,3 +183,11 @@ def moses_multi_bleu(hypotheses, references, lowercase=False):
     hypothesis_file.close()
     reference_file.close()
     return bleu_score
+
+if __name__=="__main__":
+    from tokenization import Tokenizer
+    tokenizer = Tokenizer(vocab_file='./src/utils/pretrain-data/gpt2-vocab.json',
+        merge_file='./src/utils/pretrain-data/gpt2-merges.txt')
+    b = BLEU(tokenizer)
+    b.update(['I am his fathers.','You are here.'],['I am his father.','I am here.'])
+    print(b.bleu,type(b.bleu))
