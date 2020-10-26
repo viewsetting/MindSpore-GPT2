@@ -16,29 +16,6 @@
 
 
 
-get_real_path(){
-  if [ "${1:0:1}" == "/" ]; then
-    echo "$1"
-  else
-    echo "$(realpath -m $PWD/$1)"
-  fi
-}
-
-PATH1=$(get_real_path $3)
-PATH2=$(get_real_path $4)
-
-if [ $# == 5 ]
-then 
-    PATH3=$(get_real_path $5)
-fi
-
-
-
-if [ ! -d $PATH2 ]
-then 
-    echo "error: DATASET_PATH=$PATH2 is not a directory"
-exit 1
-fi 
 
 
 
@@ -64,7 +41,7 @@ do
     env > env.log
     if [ $# == 4 ]
     then	    
-        python train_translation_model_distributed.py --net=$1 --dataset=$2 --device_target=Ascend --device_num=$DEVICE_NUM --dataset_path=$PATH2 &> log &
+        python train_translation_model_distributed.py --device_target=Ascend --device_num=$DEVICE_NUM  &> log &
     fi
     
     
