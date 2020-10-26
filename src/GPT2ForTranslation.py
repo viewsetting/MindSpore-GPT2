@@ -29,10 +29,10 @@ class GPT2TranslationModel(nn.Cell):
         output = self.cast(output, self.dtype)
         output = self.dropout(output)
         #batch_size, seq_length, d_model = self.shape(output)
-        output_reshape = P.Reshape()(output, (self.batch_size*self.seq_length,-1 )) # [batch_size * seq_len, d_model]
+        output_reshape = self.reshape(output, (self.batch_size*self.seq_length,-1 )) # [batch_size * seq_len, d_model]
         logits = self.dense1(output_reshape)
         logits = self.cast(logits, self.dtype)
         #logits = self.log_softmax(logits)
-        translation_logits = P.Reshape()(logits, (self.batch_size, self.seq_length, self.vocab_size)) # [batch_size, seq_len, vocab]
+        translation_logits = self.reshape(logits, (self.batch_size, self.seq_length, self.vocab_size)) # [batch_size, seq_len, vocab]
 
         return translation_logits
