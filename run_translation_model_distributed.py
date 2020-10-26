@@ -217,11 +217,13 @@ def run_translation():
 
     device = args_opt.device_target
     if device == "GPU":
+        
         context.set_context(mode=context.GRAPH_MODE, device_target="GPU", device_id=args_opt.device_id,max_call_depth=3000)
         context.set_auto_parallel_context(parallel_mode="stand_alone")
     elif device == "Ascend":
-        #device_id = int(os.getenv('DEVICE_ID'))
-        context.set_context(mode=context.GRAPH_MODE, device_target="Ascend", device_id=args_opt.device_id)
+        device_id = int(os.getenv('DEVICE_ID'))
+        print("------- This is {} device".format(device_id))
+        context.set_context(mode=context.GRAPH_MODE, device_target="Ascend", device_id=device_id)
         context.set_auto_parallel_context(parallel_mode=ParallelMode.DATA_PARALLEL,device_num = args_opt.device_num,gradients_mean=True)
         init()
     else:
@@ -237,13 +239,13 @@ def run_translation():
                          use_one_hot_embeddings=False)
         print("============== Start Loading Train Dataset ==============")
         train_dataset = create_translation_dataset(
-            dataset_path="/home/tju/gpt2/"+translate_direction+"-train-mindrecord",device_num=args_opt.device_num,rank_id=args_opt.device_id)
+            dataset_path="/home/tju/gpt2/"+translate_direction+"-train-mindrecord",device_num=args_opt.device_num,rank_id=device_id)
         do_train(train_dataset, gpt2_loss, load_pretrain_ckpt_path, save_finetune_ckpt_path, epoch_num,translate_direction)
 
     if args_opt.do_eval.lower() == "true":
         print("============ Start Loading Evaluation Dataset ============")
         eval_dataset = create_translation_dataset(
-            dataset_path="/home/tju/gpt2/"+translate_direction+"-test-mindrecord",device_num=args_opt.device_num,rank_id=args_opt.device_id)
+            dataset_path="/home/tju/gpt2/"+translate_direction+"-test-mindrecord",device_num=args_opt.device_num,rank_id=device_id)
         do_eval(eval_dataset, GPT2TranslationModel, metric, load_finetune_ckpt_path,translate_direction)
 
 
