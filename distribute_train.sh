@@ -31,12 +31,13 @@ for((i=0; i<${DEVICE_NUM}; i++))
 do
     export DEVICE_ID=${i}
     export RANK_ID=$((rank_start + i))
-    # rm -rf ./train_parallel$i
-    # mkdir ./train_parallel$i
-    # cp ../*.py ./train_parallel$i
-    # cp *.sh ./train_parallel$i
-    # cp -r ../src ./train_parallel$i
-    # cd ./train_parallel$i || exit
+    rm -rf ./train_parallel$i
+    mkdir ./train_parallel$i
+    cp *.py ./train_parallel$i
+    cp *.sh ./train_parallel$i
+    cp -r ./src ./train_parallel$i
+    cp -r ./utils ./train_parallel$i
+    cd ./train_parallel$i || exit
     echo "start training for rank $RANK_ID, device $DEVICE_ID"
     env > env.log
     	    
