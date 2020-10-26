@@ -158,6 +158,20 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",tra
     else:
         raise ValueError("metric method not supported in summarization, support: [Rouge]")
 
+def _get_rank_info():
+    """
+    get rank size and rank id
+    """
+    rank_size = int(os.environ.get("RANK_SIZE", 1))
+
+    if rank_size > 1:
+        rank_size = get_group_size()
+        rank_id = get_rank()
+    else:
+        rank_size = 1
+        rank_id = 0
+
+    return rank_size, rank_id
 
 def run_translation():
     '''
@@ -224,6 +238,7 @@ def run_translation():
         init()
     else:
         raise Exception("Device target error, Ascend and Nvidia GPU is supported.")
+    
 
     if device == "Ascend":
         device_num,rank_id = _get_rank_info()
@@ -234,13 +249,13 @@ def run_translation():
                          use_one_hot_embeddings=False)
         print("============== Start Loading Train Dataset ==============")
         train_dataset = create_translation_dataset(
-            dataset_path="/home/tju/1M/1M_"+translate_direction+"-train-mindrecord",device_num=device_num,rank_id=rank_id)
+            dataset_path="/home/tju/gpt2/"+translate_direction+"-train-mindrecord",device_num=device_num,rank_id=rank_id)
         do_train(train_dataset, gpt2_loss, load_pretrain_ckpt_path, save_finetune_ckpt_path, epoch_num,translate_direction)
 
     if args_opt.do_eval.lower() == "true":
         print("============ Start Loading Evaluation Dataset ============")
         eval_dataset = create_translation_dataset(
-            dataset_path="/home/tju/1M/1M_"+translate_direction+"-test-mindrecord",device_num=device_num,rank_id=rank_id)
+            dataset_path="/home/tju/gpt2/"+translate_direction+"-test-mindrecord",device_num=device_num,rank_id=rank_id)
         do_eval(eval_dataset, GPT2TranslationModel, metric, load_finetune_ckpt_path,translate_direction)
 
 
