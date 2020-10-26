@@ -76,7 +76,7 @@ def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoin
     reorganized_param_dict = dict()
     for netName in param_dict:
         reorganized_param_dict['gpt2.gpt2.'+netName] = param_dict[netName]
-    reorganized_param_dict['lm_head.weight'] = param_dict['gpt2_embedding_lookup.embedding_table']
+    reorganized_param_dict['dense.weight'] = param_dict['gpt2_embedding_lookup.embedding_table']
     load_param_into_net(network, reorganized_param_dict)
 
     update_cell = DynamicLossScaleUpdateCell(loss_scale_value=2**32, scale_factor=2, scale_window=1000)
