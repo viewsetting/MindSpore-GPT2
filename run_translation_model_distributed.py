@@ -234,7 +234,7 @@ def run_translation():
         context.set_auto_parallel_context(parallel_mode="stand_alone")
     elif device == "Ascend":
         context.set_context(mode=context.GRAPH_MODE, device_target="Ascend", device_id=args_opt.device_id)
-        context.set_auto_parallel_context(parallel_mode=ParallelMode.DATA_PARALLEL,device_num = args_opt.device_num,gradient_mean=True)
+        context.set_auto_parallel_context(parallel_mode=ParallelMode.DATA_PARALLEL,device_num = args_opt.device_num,gradients_mean=True)
         init()
     else:
         raise Exception("Device target error, Ascend and Nvidia GPU is supported.")
