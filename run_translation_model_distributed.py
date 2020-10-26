@@ -186,8 +186,10 @@ def run_translation():
                         help="Save the checkpoint path.")
     parser.add_argument("--load_pretrain_ckpt_path", type=str, default="/home/tju/gpt2/pretrained_weights/ms_model_small.ckpt",
                         help="Load the checkpoint file path.")
-    parser.add_argument("--load_finetune_ckpt_path", type=str, default="/home/tju/gpt2/pretrained_weights/saved/"+"ms_model_small.ckpt",
+    parser.add_argument("--load_finetune_ckpt_path", type=str, default="/home/tju/gpt2/pretrained_weights/ms_model_small.ckpt",
                         help="Load the checkpoint file path.")
+    # parser.add_argument("--load_finetune_ckpt_path", type=str, default="/home/tju/gpt2/pretrained_weights/saved/"+"ms_model_small.ckpt",
+    #                     help="Load the checkpoint file path.")
     parser.add_argument("--train_data_file_path", type=str, default="/home/tju/gpt2/1M",
                         help="Data path, it is better to use absolute path")
     parser.add_argument("--eval_data_file_path", type=str, default="/home/tju/gpt2/1M",
