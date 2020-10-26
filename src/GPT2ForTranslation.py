@@ -18,7 +18,7 @@ class GPT2TranslationModel(nn.Cell):
         #self.log_softmax = P.LogSoftmax(axis=-1)
 
         self.dtype = config.dtype
-        self.dense1 = nn.Dense(config.d_model,
+        self.dense = nn.Dense(config.d_model,
                                self.vocab_size,
                                weight_init=TruncatedNormal(config.initializer_range),
                                has_bias=True).to_float(config.compute_type)
@@ -30,7 +30,7 @@ class GPT2TranslationModel(nn.Cell):
         output = self.dropout(output)
         batch_size, seq_length, d_model = self.shape(output)
         output_squeezed = self.reshape(output, (batch_size*seq_length,d_model )) # [batch_size * seq_len, d_model]
-        logits = self.dense1(output_squeezed)
+        logits = self.dense(output_squeezed)
         logits = self.cast(logits, self.dtype)
         #logits = self.log_softmax(logits)
         logits = self.reshape(logits, (batch_size, seq_length, -1)) # [batch_size, seq_len, vocab]
