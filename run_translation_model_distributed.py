@@ -69,7 +69,7 @@ def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoin
 
     # load checkpoint into network
     ckpt_config = CheckpointConfig(save_checkpoint_steps=steps_per_epoch, keep_checkpoint_max=1)
-    ckpoint_cb = ModelCheckpoint(prefix="gpt2_translation"+translate_direction,
+    ckpoint_cb = ModelCheckpoint(prefix="gpt2_translation_"+translate_direction,
                                  directory=None if save_checkpoint_path == "" else save_checkpoint_path,
                                  config=ckpt_config)
     param_dict = load_checkpoint(load_checkpoint_path)
@@ -175,21 +175,21 @@ def run_translation():
                         help="Enable train. Default: false.")
     parser.add_argument("--do_eval", type=str, default="false",
                         help="Enable evaluation. Default: false.")
-    parser.add_argument("--epoch_num", type=int, default=2,
-                        help="Epoch number. Default: 2.")
+    parser.add_argument("--epoch_num", type=int, default=8,
+                        help="Epoch number. Default: 8.")
     parser.add_argument("--train_data_shuffle", type=str, default="true",
                         help="Enable train data shuffle. Default: true.")
     parser.add_argument("--eval_data_shuffle", type=str, default="false",
                         help="Enable eval data shuffle. Default: false.")
-    parser.add_argument("--save_finetune_ckpt_path", type=str, default="/datasets/pretrained_weights/saved/",
+    parser.add_argument("--save_finetune_ckpt_path", type=str, default="/home/tju/gpt2/pretrained_weights/saved/",
                         help="Save the checkpoint path.")
-    parser.add_argument("--load_pretrain_ckpt_path", type=str, default="/datasets/pretrained_weights/ms_model_small.ckpt",
+    parser.add_argument("--load_pretrain_ckpt_path", type=str, default="/home/tju/gpt2/pretrained_weights/ms_model_small.ckpt",
                         help="Load the checkpoint file path.")
-    parser.add_argument("--load_finetune_ckpt_path", type=str, default="/datasets/pretrained_weights/ms_model_small.ckpt",
+    parser.add_argument("--load_finetune_ckpt_path", type=str, default="/home/tju/gpt2/pretrained_weights/saved/"+"ms_model_small.ckpt",
                         help="Load the checkpoint file path.")
-    parser.add_argument("--train_data_file_path", type=str, default="/datasets/translation/1M",
+    parser.add_argument("--train_data_file_path", type=str, default="/home/tju/gpt2/1M",
                         help="Data path, it is better to use absolute path")
-    parser.add_argument("--eval_data_file_path", type=str, default="/datasets/translation/1M",
+    parser.add_argument("--eval_data_file_path", type=str, default="/home/tju/gpt2/1M",
                         help="Data path, it is better to use absolute path")
     parser.add_argument("--translate_direction", type=str, default="en-fr",
                         help="translate from Language_A to Language_B: ['en-fr','fr-en']")
