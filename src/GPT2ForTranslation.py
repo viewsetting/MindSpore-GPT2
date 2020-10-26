@@ -10,7 +10,7 @@ class GPT2TranslationModel(nn.Cell):
             config.hidden_dropout = 0.0
 
         self.gpt2 = GPT2Model(config, is_training, use_one_hot_embeddings)
-        self.vocab_size_en = config.vocab_size
+        self.vocab_size = config.vocab_size
         self.cast = P.Cast()
         self.shape = P.Shape()
         self.batch_size = config.batch_size
@@ -19,7 +19,7 @@ class GPT2TranslationModel(nn.Cell):
 
         self.dtype = config.dtype
         self.dense1 = nn.Dense(config.d_model,
-                               self.vocab_size_en,
+                               self.vocab_size,
                                weight_init=TruncatedNormal(config.initializer_range),
                                has_bias=True).to_float(config.compute_type)
         self.dropout = nn.Dropout(1 - config.hidden_dropout)
@@ -29,10 +29,10 @@ class GPT2TranslationModel(nn.Cell):
         output = self.cast(output, self.dtype)
         output = self.dropout(output)
         #batch_size, seq_length, d_model = self.shape(output)
-        output_reshape = self.reshape(output, (self.batch_size*self.seq_length,-1 )) # [batch_size * seq_len, d_model]
-        logits = self.dense1(output_reshape)
+        output_squeezed = self.reshape(output, (self.batch_size*self.seq_length,-1 )) # [batch_size * seq_len, d_model]
+        logits = self.dense1(output_squeezed)
         logits = self.cast(logits, self.dtype)
         #logits = self.log_softmax(logits)
-        translation_logits = self.reshape(logits, (self.batch_size, self.seq_length, self.vocab_size)) # [batch_size, seq_len, vocab]
+        logits = self.reshape(logits, (self.batch_size, self.seq_length, self.vocab_size)) # [batch_size, seq_len, vocab]
 
-        return translation_logits
+        return logits
