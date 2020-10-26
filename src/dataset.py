@@ -4,6 +4,7 @@ import mindspore.common.dtype as mstype
 import mindspore.dataset as de
 from .finetune_eval_config import gpt2_net_cfg
 import mindspore.dataset.transforms.c_transforms as C
+from mindspore.communication.management import get_rank, get_group_size
 
 
 def create_language_model_dataset(device_num=1, repeat_count=1, rank_id=0, do_shuffle=True,
@@ -67,8 +68,9 @@ def create_cnn_dailymail_dataset(device_num=1, repeat_count=1, rank_id=0, do_shu
 def create_translation_dataset(device_num=1, repeat_count=1, rank_id=0, do_shuffle=True,
                                   dataset_path="/data/tju/src/mindspore-dataset/en-fr-train-mindrecord",target='Ascend'):
     
-    
-    
+    device_num = get_group_size()
+    rank_id  = get_rank()
+    print("*"*30+"[create_translation_dataset]  device_num:{}  rank_id:{}".format(device_num,rank_id))
     type_cast_op = C.TypeCast(mstype.int32)
     ds = de.MindDataset(dataset_path,
                         columns_list=["input_ids", "input_mask", "label_ids"],
