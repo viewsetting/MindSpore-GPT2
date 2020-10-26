@@ -15,11 +15,21 @@ python create_data.py --input_file /data/tju/new_wiki.test.txt --output_file /da
 
 CNN_DailyMail 3.0.0:
 
-import test set:
-python create_data.py --input_file /data/tju/cnn_dailymail_test.txt --output_file /data/tju/src/mindspore-dataset/cnn_dailymail-test-mindrecord --num_splits 1 --max_seq_length 1024
+create test set:
+python create_data.py --input_file /data/tju/cnn_dailymail_test.txt --output_file /data/tju/src/mindspore-dataset/cnn_dailymail-test-mindrecord --num_splits 1 --max_seq_length 1024 --mode 'cnn_dailymail'
 
-import training set:
-python create_data.py --input_file /data/tju/cnn_dailymail_train.txt --output_file /data/tju/src/mindspore-dataset/cnn_dailymail-train-mindrecord --num_splits 1 --max_seq_length 1024
+create training set:
+python create_data.py --input_file /data/tju/cnn_dailymail_train.txt --output_file /data/tju/src/mindspore-dataset/cnn_dailymail-train-mindrecord --num_splits 1 --max_seq_length 1024 --mode 'cnn_dailymail'
+
+Translation:
+
+en-fr:
+
+python create_data.py --input_file --output_file --num_splits --max_seq_length
+
+fr-en:
+
+python create_data.py --input_file --output_file --num_splits --max_seq_length
 
 """
 
