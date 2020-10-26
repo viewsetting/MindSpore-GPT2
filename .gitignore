@@ -9,7 +9,8 @@ test/
 __pycache__
 **/cuda_**/**
 *.txt
-*.sh
+run_*.sh
+create_*.sh
 *.dat
 test_*.py
 src/utils/multi-bleu.perl
