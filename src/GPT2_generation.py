@@ -443,6 +443,8 @@ class Sample():
                 
                 input_ids, input_mask, len_str = self.tensorize_ids_with_masks(
                     full_str)
+
+                early_stop_mask = [0]*self.batch_size
                 
                 
                 logits = self.decoder.predict(input_ids, input_mask)
@@ -489,14 +491,25 @@ class Sample():
 
                 for batch_idx in range(self.batch_size):
                     next_word_index = sampled_next_word_index_list[batch_idx]
-
                     # earlystop if the model generates a EOS token. For batch_size = 1 situation only.
                     if next_word_index == self.eos_id and self.early_stop is True and self.batch_size == 1:
                         break
-
+                    if next_word_index == self.eos_id and self.early_stop is True:
+                        early_stop_mask[batch_idx] = 1
+                    if early_stop_mask[batch_idx] == 1 and self.early_stop is True:
+                        continue
                     next_word_str = self.tokenizer.decode([next_word_index])
                     full_str[batch_idx] += next_word_str
                     generate_str[batch_idx] += next_word_str
+
+                if 0 not in early_stop_mask:
+                    break
+
+                        
+                        
+
+
+
         if self.batch_size == 1 and self.demo_mode is True:
             if self.return_logits == True:
                 return generate_str[0], full_str[0],logits
@@ -537,7 +550,7 @@ class Sample():
                 article_str[article_idx]+=(" "+self.tokenizer.eos_token)
         
         #print("[DEBUG INFO] Sample.generate_for_CNN_DAILYMAIL article_str:")
-        print(article_str)
+        #print(article_str)
 
         generate_str_list, _ = self.generate(
             input_str=article_str, generate_length=generate_length)
@@ -578,6 +591,53 @@ class Sample():
             # print(summary_str[article_idx])
 
         return generated_summary_list, summary_str  # Hypo and Ref
+
+    def generate_for_Translation(self, input_ids, max_generate_length=150):
+
+        """
+        Args
+            input_ids(Tennor): input_ids(shape: (self.batch_size,s self.eq_length)) of dataset which is sampled from mindrecord
+            generate_length(int): tokens to generate
+            select_sentence(int): number of leading sentences in generation to be selected for hypothesis string.
+                            0 for return full generation, if there are less sentences in generation, full generation will
+                            be returned, either.
+            TL_DR(bool): True for one "TL,DR" token padded in article, False for no.
+    
+        Return:
+            generated_summary: generated string of the model
+            summary_str: summary string in dataset as label or reference string
+        """
+
+        self.early_stop = True
+        source_str, ref_str = self.extract_string_from_tensor(
+            input_ids, mode="pair")
+        
+
+        generated_translation_list= [""]*self.batch_size
+
+        # print("[Debug INFO] generate_for_CNN_DAILYMAIL: article_str before\n",len(article_str))
+        # print(article_str)
+        
+        #pad a <TL,DR;> token(<EOS>) after the string of Article.
+       
+        for source_idx in range(self.batch_size):
+            source_str[source_idx]+=(" "+self.tokenizer.eos_token)
+        
+        #print("[DEBUG INFO] Sample.generate_for_CNN_DAILYMAIL article_str:")
+        #print(article_str)
+
+        generate_str_list, _ = self.generate(
+            input_str=source_str, generate_length=max_generate_length)
+
+        
+        for article_idx in range(self.batch_size):
+            generate_str = generate_str_list[article_idx]
+            if generate_str == '':
+                generated_str = '<empty>'
+            generated_translation_list[article_idx] = generated_str
+
+
+        return generated_translation_list, ref_str  # Hypo and Ref
 
 
 
