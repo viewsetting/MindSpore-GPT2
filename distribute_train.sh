@@ -41,7 +41,7 @@ do
     env > env.log
     if [ $# == 4 ]
     then	    
-        python train_translation_model_distributed.py --device_target=Ascend --device_num=$DEVICE_NUM --translate_direction=$1 &> log &
+        python train_translation_model_distributed.py --device_target=Ascend --device_num=$DEVICE_NUM --translate_direction=$1
     fi
     
     
@@ -49,4 +49,4 @@ do
     cd ..
 done
 
-# sh distribute_train.sh en-fr
+# sh distribute_train.sh en-fr > trainslation_record_enfr.txt
