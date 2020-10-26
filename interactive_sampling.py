@@ -6,7 +6,7 @@ from mindspore import log as logger
 from mindspore.train.serialization import load_checkpoint, load_param_into_net
 from src.utils.tokenization import Tokenizer
 from mindspore.ops import operations as P
-from src.GPT2ForSummarization import GPT2ForPredictNext
+from src.GPT2ForSummarization import GPT2SummarizationModel
 from src.GPT2ForLanguageModel import GPT2LanguageModel
 from src.GPT2_generation import Sample
 import mindspore.nn as nn
@@ -39,7 +39,7 @@ def set_env(mode="GPU", device_id=0, ckpt_path="/datasets/pretrained_weights/ms_
         compute_type=mstype.float32,
     )
 
-    gpt2_loss = GPT2ForPredictNext(config=config,
+    gpt2_loss = GPT2SummarizationModel(config=config,
                                    is_training=False,
                                    use_one_hot_embeddings=False)
     load_checkpoint_path = ckpt_path

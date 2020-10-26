@@ -3,7 +3,7 @@ import os
 import argparse
 import math
 import mindspore
-from src.GPT2ForSummarization import GPT2ForPredictNext
+from src.GPT2ForSummarization import GPT2SummarizationModel
 from src.gpt2_for_finetune import GPT2Summarization,GPT2FinetuneCell
 from src.finetune_eval_config import cfg, gpt2_net_cfg
 from src.utils.metric_method import Rouge
@@ -145,7 +145,7 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path=""):
            
             
             #input_str,ref_str = sample.extract_string_from_tensor(input_ids,mode="pair") 
-            hypo,ref = sample.generate_for_CNN_DAILYMAIL(input_ids,generate_length=30,select_sentence=0,TL_DR=True)
+            hypo,ref = sample.generate_for_CNN_DAILYMAIL(input_ids,generate_length=100,select_sentence=3,TL_DR=True)
             print("REF str:\n ",ref,"\nHYPO str:\n",hypo,"\n")
             #print("LENGTH: ",len(ref[1]),"   and   ",len(hypo[1]),"\n")
             callback.update(ref, hypo)
@@ -227,7 +227,7 @@ def run_summarization():
         print("============ Start Loading Evaluation Dataset ============")
         eval_dataset = create_cnn_dailymail_dataset(
             dataset_path="/datasets/cnn_dailymail/cnn_dailymail-test-mindrecord")
-        do_eval(eval_dataset, GPT2ForPredictNext, metric, load_finetune_ckpt_path)
+        do_eval(eval_dataset, GPT2SummarizationModel, metric, load_finetune_ckpt_path)
 
 
 

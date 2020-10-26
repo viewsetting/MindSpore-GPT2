@@ -18,7 +18,7 @@ from .GPT2ForCBT import GPT2CBTModel
 from .GPT2ForTranslation import GPT2TranslationModel
 from .GPT2ForLanguageModel import GPT2LanguageModel
 from .GPT2ForReadComprehension import GPT2CoQAModel
-from .GPT2ForSummarization import GPT2ForPredictNext
+from .GPT2ForSummarization import GPT2SummarizationModel
 
 
 grad_scale = C.MultitypeFuncGraph("grad_scale")
@@ -296,7 +296,7 @@ class GPT2CoQA(nn.Cell):
 class GPT2Summarization(nn.Cell):
     def __init__(self, config=None, is_training=None, use_one_hot_embeddings=False):
         super(GPT2Summarization, self).__init__()
-        self.gpt2 = GPT2ForPredictNext(config, is_training, use_one_hot_embeddings)
+        self.gpt2 = GPT2SummarizationModel(config, is_training, use_one_hot_embeddings)
         self.is_training = is_training
         self.last_idx = (-1,)
         self.log_softmax = P.LogSoftmax(axis=-1)
