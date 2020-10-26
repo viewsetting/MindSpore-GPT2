@@ -146,7 +146,7 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",tra
            
             
             #input_str,ref_str = sample.extract_string_from_tensor(input_ids,mode="pair") 
-            hypo,ref = sample.generate_for_Translation(input_ids,generate_length=150)
+            hypo,ref = sample.generate_for_Translation(input_ids,max_generate_length=150)
             print("REF str:\n ",ref,"\nHYPO str:\n",hypo,"\n")
             #print("LENGTH: ",len(ref[1]),"   and   ",len(hypo[1]),"\n")
             callback.update(ref, hypo)
