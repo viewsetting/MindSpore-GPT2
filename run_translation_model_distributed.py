@@ -221,8 +221,9 @@ def run_translation():
         context.set_context(mode=context.GRAPH_MODE, device_target="GPU", device_id=args_opt.device_id,max_call_depth=3000)
         context.set_auto_parallel_context(parallel_mode="stand_alone")
     elif device == "Ascend":
-        device_id = int(os.getenv('DEVICE_ID'))
-        print("------- This is {} device".format(device_id))
+        #device_id = int(os.getenv('DEVICE_ID'))
+        device_id = args_opt.device_id
+        print("------- This is {} device  ------".format(device_id))
         context.set_context(mode=context.GRAPH_MODE, device_target="Ascend", device_id=device_id)
         context.set_auto_parallel_context(parallel_mode=ParallelMode.DATA_PARALLEL,device_num = args_opt.device_num,gradients_mean=True)
         init()
