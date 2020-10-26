@@ -25,11 +25,11 @@ Translation:
 
 en-fr:
 
-python create_data.py --input_file --output_file --num_splits --max_seq_length
+python create_data.py --input_file /home/tju/1M/ --output_file --num_splits 1 --max_seq_length 1024
 
 fr-en:
 
-python create_data.py --input_file --output_file --num_splits --max_seq_length
+python create_data.py --input_file /home/tju/1M/ --output_file --num_splits --max_seq_length
 
 """
 
