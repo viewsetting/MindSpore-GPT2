@@ -65,7 +65,7 @@ def create_cnn_dailymail_dataset(device_num=1, repeat_count=1, rank_id=0, do_shu
     return ds
 
 def create_translation_dataset(device_num=1, repeat_count=1, rank_id=0, do_shuffle=True,
-                                  dataset_path="/data/tju/src/mindspore-dataset/cnn_dailymail-train-mindrecord",target='Ascend'):
+                                  dataset_path="/data/tju/src/mindspore-dataset/en-fr-train-mindrecord",target='Ascend'):
     
     
     
