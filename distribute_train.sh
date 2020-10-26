@@ -20,8 +20,8 @@
 
 
 ulimit -u unlimited
-export DEVICE_NUM=7
-export RANK_SIZE=7
+export DEVICE_NUM=8
+export RANK_SIZE=8
 export RANK_TABLE_FILE=/home/cm/hccl_8p_01234567_8.92.9.59.json
 
 export SERVER_ID=0
