@@ -29,7 +29,7 @@ class GPT2TranslationModel(nn.Cell):
         #output = self.cast(output, self.dtype)
         #output = self.dropout(output)
         batch_size, seq_length, d_model = self.shape(output)
-        output_squeezed = self.reshape(output, (batch_size*seq_length,d_model )) # [batch_size * seq_len, d_model]
+        output_squeezed = self.reshape(output, (-1,d_model )) # [batch_size * seq_len, d_model]
         logits = self.dense(output_squeezed)
         #logits = self.cast(logits, self.dtype)
         #logits = self.log_softmax(logits)
