@@ -36,7 +36,7 @@ do
     cp *.py ./train_parallel$i
     cp *.sh ./train_parallel$i
     cp -r ./src ./train_parallel$i
-    cp -r ./utils ./train_parallel$i
+    #cp -r ./utils ./train_parallel$i
     cd ./train_parallel$i || exit
     echo "start training for rank $RANK_ID, device $DEVICE_ID"
     env > env.log
