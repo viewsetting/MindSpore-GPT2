@@ -176,8 +176,8 @@ def run_translation():
                         help="Enable train. Default: false.")
     parser.add_argument("--do_eval", type=str, default="false",
                         help="Enable evaluation. Default: false.")
-    parser.add_argument("--epoch_num", type=int, default=8,
-                        help="Epoch number. Default: 8.")
+    parser.add_argument("--epoch_num", type=int, default=2,
+                        help="Epoch number. Default: 2.")
     parser.add_argument("--train_data_shuffle", type=str, default="true",
                         help="Enable train data shuffle. Default: true.")
     parser.add_argument("--eval_data_shuffle", type=str, default="false",
@@ -194,7 +194,7 @@ def run_translation():
                         help="Data path, it is better to use absolute path")
     parser.add_argument("--translate_direction", type=str, default="en-fr",
                         help="translate from Language_A to Language_B: ['en-fr','fr-en']")
-    parser.add_argument("--device_num", type=int, default=8,
+    parser.add_argument("--device_num", type=int, default=1,
                         help="device number")
     args_opt = parser.parse_args()
 
@@ -224,9 +224,10 @@ def run_translation():
         #device_id = int(os.getenv('DEVICE_ID'))
         device_id = args_opt.device_id
         print("------- This is {} device  ------".format(device_id))
-        context.set_context(mode=context.GRAPH_MODE, device_target="Ascend", device_id=device_id)
-        context.set_auto_parallel_context(parallel_mode=ParallelMode.DATA_PARALLEL,device_num = args_opt.device_num,gradients_mean=True)
-        init()
+        context.set_context(mode=context.GRAPH_MODE, device_target="Ascend", device_id=0)
+        context.set_auto_parallel_context(parallel_mode=ParallelMode.STAND_ALONE)
+        # context.set_auto_parallel_context(parallel_mode=ParallelMode.DATA_PARALLEL,device_num = args_opt.device_num,gradients_mean=True)
+        # init()
     else:
         raise Exception("Device target error, Ascend and Nvidia GPU is supported.")
     
