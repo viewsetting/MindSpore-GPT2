@@ -9,4 +9,4 @@ python src/create_data.py --input_file /home/tju/gpt2/1M/baseline-1M_train.en-fr
 
 
 #fr-en test
-python src/create_data.py --input_file /home/tju/gpt2/1M/newstest2014.fr-en --output_file /home/tju/gpt2/fr-en-test-mindrecord --num_splits 1 --max_seq_length 1024  --vocab_file src/utils/pretrain-data/gpt2-vocab.json --merge_file src/utils/pretrain-data/gpt2-merges.txt &&
+python src/create_data.py --input_file /home/tju/gpt2/1M/newstest2014.fr-en --output_file /home/tju/gpt2/fr-en-test-mindrecord --num_splits 1 --max_seq_length 1024  --vocab_file src/utils/pretrain-data/gpt2-vocab.json --merge_file src/utils/pretrain-data/gpt2-merges.txt 
