@@ -41,7 +41,7 @@ do
     echo "start training for rank $RANK_ID, device $DEVICE_ID"
     env > env.log
     	    
-    python run_translation_model_distributed.py --device_target=Ascend --device_id=$DEVICE_ID --device_num=$DEVICE_NUM --translate_direction=$1 --do_train=$2 --do_eval=$3
+    python run_translation_model_distributed.py --device_target="Ascend" --device_id=$DEVICE_ID --device_num=$DEVICE_NUM --translate_direction=$1 --do_train=$2 --do_eval=$3
     
     
     
