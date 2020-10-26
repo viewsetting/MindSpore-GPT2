@@ -1,14 +1,18 @@
-import os
+import os,sys
 import argparse
 import math
+import numpy as np
 from src.gpt2_for_finetune import GPT2FinetuneCell, GPT2Lambada
 from src.finetune_eval_config import cfg, gpt2_net_cfg
 from src.utils.metric_method import Accuracy 
 from src.dataset import create_language_model_dataset
 from src.utils.lr_schedule import GPT2LearningRate
 from src.utils.losscallback import LossCallBack
+from src.utils.extract_logits_lambada import extract_logits_for_lambada
 import mindspore
 import mindspore.common.dtype as mstype
+import mindspore.common.tensor as Tensor
+import mindspore.ops.operations as P
 from mindspore import context
 from mindspore import log as logger
 from mindspore.nn.wrap.loss_scale import DynamicLossScaleUpdateCell
@@ -82,14 +86,13 @@ def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoin
 
 def eval_result_print(metric="accuracy", callback=None):
     """ print eval result"""
-    if metric == "accuracy":
+    if metric.lower() == "accuracy":
         print("acc_num {}, total_num {}, accuracy {:.6f}".format(callback.acc_num, callback.total_num,
                                                                  callback.acc_num / callback.total_num))
     else:
         raise ValueError("metric method not supported, support: [accuracy]")
 
-
-def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path=""):
+def do_eval(dataset=None, metric=None, load_checkpoint_path=""):
     """
     Do eval
     Args:
@@ -98,36 +101,64 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path=""):
         metric: the evaluation method.
         load_checkpoint_path: the file path which saved finetune model checkpoint.
     """
+    print("============== Starting Eval ==============")
     if load_checkpoint_path == "":
         raise ValueError("Finetune model missed, evaluation task must load finetune model!")
 
     if metric.lower() == "accuracy":
         print("Prepare to calculate the accuracy score ...")
         callback = Accuracy()
-        gpt2_loss = network(config=gpt2_net_cfg,
-                            is_training=False,
-                            use_one_hot_embeddings=False)
+        gpt2_loss = GPT2Lambada(config=gpt2_net_cfg,
+                                is_training=False,
+                                use_one_hot_embeddings=False)
 
         gpt2_loss.set_train(False)
         param_dict = load_checkpoint(load_checkpoint_path)
-        load_param_into_net(gpt2_loss, param_dict)
+
+        final_param_dict = {}
+        for k, v in param_dict.items():
+            final_param_dict['gpt2_loss.gpt2.gpt2.' + k] = param_dict[k]
+                
+        final_param_dict['gpt2_loss.gpt2.dense1.weight'] = param_dict['gpt2_embedding_lookup.embedding_table']
+
+        load_param_into_net(gpt2_loss, final_param_dict)
+        # dict_ = gpt2_loss.parameters_dict()
+        # for k, v in dict_.items():
+        #     print('name: {}\n'.format(k))
+        #     print('value: {}'.format(dict_[k]))
+        #     print("--------------------------------\n")
+
+        print("load new parameter successfully!\n")
         model = Model(gpt2_loss)
 
+        print("============= Testing =============")
         columns_list = ["input_ids", "input_mask", "label_ids"]
         for data in dataset.create_dict_iterator():
             input_data = []
             for i in columns_list:
                 input_data.append(data[i])
             input_ids, input_mask, label_ids = input_data
-            input_ids = Tensor(input_ids, mindspore.int32)
-            input_mask = Tensor(input_mask, mindspore.int32)
-            label_ids = Tensor(label_ids, mindspore.int32)
+
             print("input_ids shape: {}".format(input_ids.shape))
+            print("input_mask shape: {}".format(input_mask.shape))
             print("label_ids shape: {}".format(label_ids.shape))
-            print("============= Testing =============")
+            print("label_ids : {}".format(label_ids[:4,:25]))
+            
             logits = model.predict(input_ids, input_mask, label_ids)
-            print("logits shape: {}".format(logits.shape))
-            callback.update(logits, label_ids)
+            # pos_mask = -1
+            # for i in range(input_mask.shape[0]):
+            #     if input_mask[i,]:
+            #         pos_mask = pos_mask + 1
+            # pos_mask = pos_mask -1
+            print("after predict logits shape: {}".format(logits.shape))
+            print("after predict logits: {}".format(logits[:4,8:18,8:15]))
+
+            final_logits, final_label_ids, no_mask_length = extract_logits_for_lambada(logits, label_ids, input_mask)
+            # print("no mask length: {}".format(no_mask_length))
+            print("the final logits shape: {}".format(final_logits.shape))
+            print("the final logits: \n{}".format(final_logits[:3,:,:20]))
+            # logits = logits[::, pos_mask-1:pos_mask, ::]
+            callback.update(final_logits, final_label_ids)
         print("==============================================")
         eval_result_print(metric, callback)
         print("==============================================")
@@ -136,30 +167,44 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path=""):
     elif metric.lower() == "ppl":
         print("Prepare to calculate the ppl score ...")
         # ppl metric can be calculated by using the loss, so the difference is 'is_training'
-        gpt2_loss = network(config=gpt2_net_cfg,
-                            is_training=True,
-                            use_one_hot_embeddings=False)
+        gpt2_loss = GPT2Lambada(config=gpt2_net_cfg,
+                                is_training=True,
+                                use_one_hot_embeddings=False)
 
         gpt2_loss.set_train(False)
         param_dict = load_checkpoint(load_checkpoint_path)
-        load_param_into_net(gpt2_loss, param_dict)
+        final_param_dict = {}
+        for k, v in param_dict.items():
+            final_param_dict['gpt2_loss.gpt2.gpt2.' + k] = param_dict[k]
+                
+        final_param_dict['gpt2_loss.gpt2.dense1.weight'] = param_dict['gpt2_embedding_lookup.embedding_table']
+
+        load_param_into_net(gpt2_loss, final_param_dict)
+        # load_param_into_net(gpt2_loss, param_dict)
         model = Model(gpt2_loss)
 
+        print("============= Testing =============")
+        num_data = 0
+        total_ppl = 0.0
         columns_list = ["input_ids", "input_mask", "label_ids"]
         for data in dataset.create_dict_iterator():
             input_data = []
             for i in columns_list:
                 input_data.append(data[i])
             input_ids, input_mask, label_ids = input_data
-            input_ids = Tensor(input_ids, mindspore.int32)
-            input_mask = Tensor(input_mask, mindspore.int32)
-            label_ids = Tensor(label_ids, mindspore.int32)
-            print("input_ids_type: {}".format(type(input_ids)))
-            print("label_ids_type: {}".format(type(label_ids)))
-            print("============= Testing =============")
+            print("input_ids_shape: {}".format(input_ids.shape))
+            print("input_mask_shape: {}".format(input_mask.shape))
+            print("label_ids_shape: {}".format(label_ids.shape))
+            
             loss = model.predict(input_ids, input_mask, label_ids)
-            print("Loss: {:.6f}".format(loss))
-            print("PPL: {}".format(math.exp(loss)))
+            loss = loss.asnumpy()
+            ppl = math.exp(float(loss))
+            print("Loss: {:.6f}".format(float(loss)))
+            print("PPL: {}".format(ppl))
+            num_data += 1
+            total_ppl += ppl
+        avg_ppl = total_ppl / num_data
+        print("Average PPL: {:.6f}".format(avg_ppl))
         print("************** Testing Finished **************")
     else:
         raise ValueError("metric method not supported, support: [accuracy, ppl]")
@@ -172,7 +217,7 @@ def run_lambada():
     parser = argparse.ArgumentParser(description="Finetune and Evaluate languagemodel")
     parser.add_argument("--device_target", type=str, default="Ascend",
                         help="Device type. Default: Ascend.")
-    parser.add_argument("--device_id", type=int, default=4,
+    parser.add_argument("--device_id", type=int, default=1,
                         help="ID of target device. ")
     parser.add_argument("--metric_method", type=str, default="Accuracy",
                         help="The eval method including [Accuracy, PPL]. Default: Accuracy.") # DOING
@@ -180,21 +225,21 @@ def run_lambada():
                         help="Enable train. Default: false.")
     parser.add_argument("--do_eval", type=str, default="true",
                         help="Enable evaluation. Default: false.")
-    parser.add_argument("--epoch_num", type=int, default=2,
+    parser.add_argument("--epoch_num", type=int, default=5,
                         help="Epoch number. Default: 1.")
     parser.add_argument("--train_data_shuffle", type=str, default="false",
                         help="Enable train data shuffle. Default: false.")
     parser.add_argument("--eval_data_shuffle", type=str, default="true",
                         help="Enable eval data shuffle. Default: true.")
-    parser.add_argument("--save_finetune_ckpt_path", type=str, default="/data/tju/pretrained-weight/",
+    parser.add_argument("--save_finetune_ckpt_path", type=str, default="./pretrained-weight/",
                         help="Save the checkpoint path.")
-    parser.add_argument("--load_pretrain_ckpt_path", type=str, default="/data/tju/pretrained-weight/mindspore_model_small.ckpt",
+    parser.add_argument("--load_pretrain_ckpt_path", type=str, default="./pretrained-weight/mindspore_model_small.ckpt",
                         help="Load the checkpoint file path.")
-    parser.add_argument("--load_finetune_ckpt_path", type=str, default="/data/tju/pretrained-weight/mindspore_model_small.ckpt",
+    parser.add_argument("--load_finetune_ckpt_path", type=str, default="./pretrained-weight/mindspore_model_small.ckpt",
                         help="Load the checkpoint file path.")
-    parser.add_argument("--train_data_file_path", type=str, default="/data/tju/src/mindspore-dataset/lambada-train-mindrecord",
+    parser.add_argument("--train_data_file_path", type=str, default="./src/mindspore-dataset/lambada-train-mindrecord",
                         help="Data path, it is better to use absolute path")
-    parser.add_argument("--eval_data_file_path", type=str, default="/data/tju/src/mindspore-dataset/lambada-test-mindrecord",
+    parser.add_argument("--eval_data_file_path", type=str, default="./src/mindspore-dataset/lambada-test-mindrecord",
                         help="Data path, it is better to use absolute path")
     args_opt = parser.parse_args()
 
@@ -213,7 +258,7 @@ def run_lambada():
 
     device = args_opt.device_target
     if device == "Ascend":
-        context.set_context(mode=context.GRAPH_MODE, device_target="Ascend", device_id=args_opt.device_id)
+        context.set_context(mode=context.GRAPH_MODE, device_target="GPU", device_id=args_opt.device_id)
         context.set_auto_parallel_context(parallel_mode="stand_alone")
     else:
         raise Exception("Device target error, Ascend is supported.")
@@ -221,14 +266,19 @@ def run_lambada():
     gpt2_loss = GPT2Lambada(config=gpt2_net_cfg,
                          is_training=False,
                          use_one_hot_embeddings=False)
-                         
+
+
+    if args_opt.do_train.lower() == "true":
+        print("==============    Start Loading Train Dataset   ============")
+        train_dataset = create_language_model_dataset(dataset_path=args_opt.train_data_file_path)
+        do_train(train_dataset, gpt2_loss, load_pretrain_ckpt_path, save_finetune_ckpt_path, epoch_num)
+                
     if args_opt.do_eval.lower() == "true":
         print("============ Start Loading Evaluation Dataset ============")
-        eval_dataset = create_language_model_dataset(
-            dataset_path="/data/tju/src/mindspore-dataset/lambada-test-mindrecord")
-        do_eval(eval_dataset, GPT2Lambada, metric, load_finetune_ckpt_path)
+        eval_dataset = create_language_model_dataset(dataset_path=args_opt.eval_data_file_path)
+        do_eval(eval_dataset, metric, load_finetune_ckpt_path)
+
 
 
 if __name__ == "__main__":
     run_lambada()
-    print("Finshed LAMBADA EVAL")
