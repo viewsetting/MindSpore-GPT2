@@ -65,7 +65,10 @@ def create_cnn_dailymail_dataset(device_num=1, repeat_count=1, rank_id=0, do_shu
     return ds
 
 def create_translation_dataset(device_num=1, repeat_count=1, rank_id=0, do_shuffle=True,
-                                  dataset_path="/data/tju/src/mindspore-dataset/cnn_dailymail-train-mindrecord"):
+                                  dataset_path="/data/tju/src/mindspore-dataset/cnn_dailymail-train-mindrecord",target='Ascend'):
+    
+    
+    
     type_cast_op = C.TypeCast(mstype.int32)
     ds = de.MindDataset(dataset_path,
                         columns_list=["input_ids", "input_mask", "label_ids"],
@@ -95,3 +98,19 @@ def create_translation_dataset(device_num=1, repeat_count=1, rank_id=0, do_shuff
 
 # if __name__ == "__main__":
 #     create_language_model_dataset()
+
+
+def _get_rank_info():
+    """
+    get rank size and rank id
+    """
+    rank_size = int(os.environ.get("RANK_SIZE", 1))
+
+    if rank_size > 1:
+        rank_size = get_group_size()
+        rank_id = get_rank()
+    else:
+        rank_size = 1
+        rank_id = 0
+
+    return rank_size, rank_id
