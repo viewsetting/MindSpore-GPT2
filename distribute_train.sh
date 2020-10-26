@@ -31,18 +31,17 @@ for((i=0; i<${DEVICE_NUM}; i++))
 do
     export DEVICE_ID=${i}
     export RANK_ID=$((rank_start + i))
-    rm -rf ./train_parallel$i
-    mkdir ./train_parallel$i
-    cp ../*.py ./train_parallel$i
-    cp *.sh ./train_parallel$i
-    cp -r ../src ./train_parallel$i
-    cd ./train_parallel$i || exit
+    # rm -rf ./train_parallel$i
+    # mkdir ./train_parallel$i
+    # cp ../*.py ./train_parallel$i
+    # cp *.sh ./train_parallel$i
+    # cp -r ../src ./train_parallel$i
+    # cd ./train_parallel$i || exit
     echo "start training for rank $RANK_ID, device $DEVICE_ID"
     env > env.log
-    if [ $# == 4 ]
-    then	    
-        python train_translation_model_distributed.py --device_target=Ascend --device_num=$DEVICE_NUM --translate_direction=$1
-    fi
+    	    
+    python train_translation_model_distributed.py --device_target=Ascend --device_num=$DEVICE_NUM --translate_direction=$1
+    
     
     
 
