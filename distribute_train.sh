@@ -20,13 +20,13 @@
 
 
 ulimit -u unlimited
-export DEVICE_NUM=8
-export RANK_SIZE=8
+export DEVICE_NUM=7
+export RANK_SIZE=7
 export RANK_TABLE_FILE=/home/cm/hccl_8p_01234567_8.92.9.59.json
 
 export SERVER_ID=0
-rank_start=$((DEVICE_NUM * SERVER_ID))
-
+#rank_start=$((DEVICE_NUM * SERVER_ID))
+rank_start=1
 for((i=0; i<${DEVICE_NUM}; i++))
 do
     export DEVICE_ID=${i}
