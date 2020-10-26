@@ -21,6 +21,8 @@ from mindspore.train.callback import CheckpointConfig, ModelCheckpoint, TimeMoni
 from mindspore.train.serialization import load_checkpoint, load_param_into_net
 from src.utils.tokenization import Tokenizer
 from mindspore.ops import operations as P
+from mindspore.context import ParallelMode
+from mindspore.communication.management import init, get_rank, get_group_size
 from src.GPT2_generation import Sample
 
 def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoint_path="", epoch_num=1,translate_direction="en-fr"):
@@ -83,7 +85,7 @@ def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoin
     loss_cb = LossMonitor()
     model = Model(netwithgrads)
     callbacks = [TimeMonitor(dataset.get_dataset_size()), loss_cb, ckpoint_cb]
-    print("============== Starting Training For Summrization Task ==============")
+    print("============== Starting Training For Translation Task ==============")
     model.train(epoch_num, dataset, callbacks=callbacks)
     print("============== Summrization Training Success ==============")
 
@@ -93,7 +95,7 @@ def eval_result_print(metric="BLEU", callback=None):
     if metric == "BLEU":
         print("BLEU{:.8f}".format(callback.bleu/float(callback.total_num)))
     else:
-        raise ValueError("metric method '{}' not supported, support: [Rouge]. ".format(str(metric)))
+        raise ValueError("metric method '{}' not supported, support: [BLEU]. ".format(str(metric)))
 
 
 def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",translate_direction="en-fr"):
@@ -140,7 +142,7 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",tra
 
             print("input_ids shape: {}".format(input_ids.shape))
             print("label_ids shape: {}".format(label_ids.shape))
-            print("============= Summrization Testing =============")
+            print("============= Translation Testing =============")
            
             
             #input_str,ref_str = sample.extract_string_from_tensor(input_ids,mode="pair") 
@@ -157,7 +159,7 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",tra
         raise ValueError("metric method not supported in summarization, support: [Rouge]")
 
 
-def run_summarization():
+def run_translation():
     '''
     run Summarization_task
 
@@ -191,6 +193,8 @@ def run_summarization():
                         help="Data path, it is better to use absolute path")
     parser.add_argument("--translate_direction", type=str, default="en-fr",
                         help="translate from Language_A to Language_B: ['en-fr','fr-en']")
+    parser.add_argument("--device_num", type=int, default=8,
+                        help="device number")
     args_opt = parser.parse_args()
 
     epoch_num = args_opt.epoch_num
@@ -216,11 +220,13 @@ def run_summarization():
         context.set_auto_parallel_context(parallel_mode="stand_alone")
     elif device == "Ascend":
         context.set_context(mode=context.GRAPH_MODE, device_target="Ascend", device_id=args_opt.device_id)
-        context.set_auto_parallel_context(parallel_mode="stand_alone")
+        context.set_auto_parallel_context(parallel_mode=ParallelMode.DATA_PARALLEL,device_num = args_opt.device_num,gradient_mean=True)
+        init()
     else:
         raise Exception("Device target error, Ascend and Nvidia GPU is supported.")
 
-    
+    if device == "Ascend":
+        device_num,rank_id = _get_rank_info()
 
     if args_opt.do_train.lower() == "true":
         gpt2_loss = GPT2Translation(config=gpt2_net_cfg,
@@ -228,16 +234,16 @@ def run_summarization():
                          use_one_hot_embeddings=False)
         print("============== Start Loading Train Dataset ==============")
         train_dataset = create_translation_dataset(
-            dataset_path="/home/tju/1M/1M_en-fr-train-mindrecord")
+            dataset_path="/home/tju/1M/1M_"+translate_direction+"-train-mindrecord",device_num=device_num,rank_id=rank_id)
         do_train(train_dataset, gpt2_loss, load_pretrain_ckpt_path, save_finetune_ckpt_path, epoch_num,translate_direction)
 
     if args_opt.do_eval.lower() == "true":
         print("============ Start Loading Evaluation Dataset ============")
         eval_dataset = create_translation_dataset(
-            dataset_path="/home/tju/1M/1M_en_fr-test-mindrecord")
+            dataset_path="/home/tju/1M/1M_"+translate_direction+"-test-mindrecord",device_num=device_num,rank_id=rank_id)
         do_eval(eval_dataset, GPT2TranslationModel, metric, load_finetune_ckpt_path,translate_direction)
 
 
 
 if __name__ == "__main__":
-    run_summarization()
+    run_translation()
