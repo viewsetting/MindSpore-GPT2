@@ -1,7 +1,9 @@
+# -*- coding: utf-8 -*-
 import os
 import argparse
 import math
 import mindspore
+from src.GPT2ForSummarization import GPT2SummarizationModel
 from src.gpt2_for_finetune import GPT2Summarization,GPT2FinetuneCell
 from src.finetune_eval_config import cfg, gpt2_net_cfg
 from src.utils.metric_method import Rouge
@@ -18,6 +20,9 @@ from mindspore.common.tensor import Tensor
 from mindspore.train.model import Model
 from mindspore.train.callback import CheckpointConfig, ModelCheckpoint, TimeMonitor, LossMonitor
 from mindspore.train.serialization import load_checkpoint, load_param_into_net
+from src.utils.tokenization import Tokenizer
+from mindspore.ops import operations as P
+from src.GPT2_generation import Sample
 
 def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoint_path="", epoch_num=1):
     """
@@ -67,14 +72,18 @@ def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoin
                                  directory=None if save_checkpoint_path == "" else save_checkpoint_path,
                                  config=ckpt_config)
     param_dict = load_checkpoint(load_checkpoint_path)
-    load_param_into_net(network, param_dict)
+    reorganized_param_dict = dict()
+    for netName in param_dict:
+        reorganized_param_dict['gpt2.gpt2.'+netName] = param_dict[netName]
+    reorganized_param_dict['gpt2.lm_head.weight'] = param_dict['gpt2_embedding_lookup.embedding_table']
+    load_param_into_net(network, reorganized_param_dict)
 
     update_cell = DynamicLossScaleUpdateCell(loss_scale_value=2**32, scale_factor=2, scale_window=1000)
     netwithgrads = GPT2FinetuneCell(network, optimizer=optimizer, scale_update_cell=update_cell)
     netwithgrads.set_train(True)
-
+    loss_cb = LossMonitor()
     model = Model(netwithgrads)
-    callbacks = [TimeMonitor(dataset.get_dataset_size()), LossCallBack(dataset.get_dataset_size()), ckpoint_cb]
+    callbacks = [TimeMonitor(dataset.get_dataset_size()), loss_cb, ckpoint_cb]
     print("============== Starting Training For Summrization Task ==============")
     model.train(epoch_num, dataset, callbacks=callbacks)
     print("============== Summrization Training Success ==============")
@@ -83,15 +92,15 @@ def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoin
 def eval_result_print(metric="Rouge", callback=None):
     """ print eval result"""
     if metric == "Rouge":
-        print("Rouge-1 {:.8f}, Rouge-2 {:.8f}, Rouge-L {:.8f}".format(callback.Rouge1/callback.total_num, callback.Rouge2/callback.total_num,
-                                                                 callback.RougeL / callback.total_num))
+        print("Rouge-1 {:.8f}, Rouge-2 {:.8f}, Rouge-L {:.8f}, Rouge-AVG{:.8f}".format(callback.Rouge1/callback.total_num, callback.Rouge2/callback.total_num,
+                                                                 callback.RougeL / callback.total_num,(callback.Rouge1+callback.Rouge2+callback.RougeL) / callback.total_num))
     else:
         raise ValueError("metric method '{}' not supported, support: [Rouge]. ".format(str(metric)))
 
 
 def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path=""):
     """
-    Do eval
+    Do evaluation on summarization
     Args:
         dataset: the eval dataset.
         network:  the network with loss.
@@ -109,24 +118,37 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path=""):
 
         gpt2_loss.set_train(False)
         param_dict = load_checkpoint(load_checkpoint_path)
-        load_param_into_net(gpt2_loss, param_dict)
-        model = Model(gpt2_loss)
+        reorganized_param_dict = dict()
+        for netName in param_dict:
+            reorganized_param_dict['gpt2.'+netName] = param_dict[netName]
+        reorganized_param_dict['lm_head.weight'] = param_dict['gpt2_embedding_lookup.embedding_table']
+        load_param_into_net(gpt2_loss, reorganized_param_dict)
 
+        # for item in gpt2_loss.get_parameters():
+
+        #     print('name: ',item.data.name)
+
+        model = Model(gpt2_loss)
+        tokenizer = Tokenizer(vocab_file='./src/utils/pretrain-data/gpt2-vocab.json',
+        merge_file='./src/utils/pretrain-data/gpt2-merges.txt')
+        sample = Sample(model,tokenizer=tokenizer,model_config=gpt2_net_cfg,topk_num = 1,topp_prob=0.92,min_tokens_to_keep=1,demo_mode=False)
         columns_list = ["input_ids", "input_mask", "label_ids"]
         for data in dataset.create_dict_iterator():
             input_data = []
             for i in columns_list:
                 input_data.append(data[i])
             input_ids, input_mask, label_ids = input_data
-            input_ids = Tensor(input_ids, mindspore.int32)
-            input_mask = Tensor(input_mask, mindspore.int32)
-            label_ids = Tensor(label_ids, mindspore.int32)
+
             print("input_ids shape: {}".format(input_ids.shape))
             print("label_ids shape: {}".format(label_ids.shape))
             print("============= Summrization Testing =============")
-            logits = model.predict(input_ids, input_mask, label_ids)
-            print("logits shape: {}".format(logits.shape))
-            callback.update(logits, label_ids)
+           
+            
+            #input_str,ref_str = sample.extract_string_from_tensor(input_ids,mode="pair") 
+            hypo,ref = sample.generate_for_CNN_DAILYMAIL(input_ids,generate_length=100,select_sentence=3,TL_DR=True)
+            print("REF str:\n ",ref,"\nHYPO str:\n",hypo,"\n")
+            #print("LENGTH: ",len(ref[1]),"   and   ",len(hypo[1]),"\n")
+            callback.update(ref, hypo)
         print("==============================================")
         eval_result_print(metric, callback)
         print("==============================================")
@@ -136,38 +158,37 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path=""):
         raise ValueError("metric method not supported in summarization, support: [Rouge]")
 
 
-
 def run_summarization():
     '''
     run Summarization_task
 
     '''
     parser = argparse.ArgumentParser(description="Finetune and Evaluate Summrization")
-    parser.add_argument("--device_target", type=str, default="Ascend",
-                        help="Device type. Default: Ascend.")
-    parser.add_argument("--device_id", type=int, default=1,
+    parser.add_argument("--device_target", type=str, default="GPU",
+                        help="Device type. Default: GPU.")
+    parser.add_argument("--device_id", type=int, default=0,
                         help="ID of target device. ")
-    parser.add_argument("--metric_method", type=str, default="Accuracy",
+    parser.add_argument("--metric_method", type=str, default="Rouge",
                         help="The eval method including [Rouge(Rouge1,Rouge2,RougeL,Rouge Avg)]. Default: Rouge.") 
-    parser.add_argument("--do_train", type=str, default="true",
+    parser.add_argument("--do_train", type=str, default="false",
                         help="Enable train. Default: false.")
     parser.add_argument("--do_eval", type=str, default="false",
                         help="Enable evaluation. Default: false.")
     parser.add_argument("--epoch_num", type=int, default=2,
-                        help="Epoch number. Default: 1.")
+                        help="Epoch number. Default: 2.")
     parser.add_argument("--train_data_shuffle", type=str, default="true",
                         help="Enable train data shuffle. Default: true.")
     parser.add_argument("--eval_data_shuffle", type=str, default="false",
                         help="Enable eval data shuffle. Default: false.")
-    parser.add_argument("--save_finetune_ckpt_path", type=str, default="/data/tju/pretrained-weight/",
+    parser.add_argument("--save_finetune_ckpt_path", type=str, default="/datasets/pretrained_weights/saved/",
                         help="Save the checkpoint path.")
-    parser.add_argument("--load_pretrain_ckpt_path", type=str, default="/data/tju/pretrained-weight/mindspore_model_small.ckpt",
+    parser.add_argument("--load_pretrain_ckpt_path", type=str, default="/datasets/pretrained_weights/ms_model_small.ckpt",
                         help="Load the checkpoint file path.")
-    parser.add_argument("--load_finetune_ckpt_path", type=str, default="/data/tju/pretrained-weight/mindspore_model_small.ckpt",
+    parser.add_argument("--load_finetune_ckpt_path", type=str, default="/datasets/pretrained_weights/ms_model_small.ckpt",
                         help="Load the checkpoint file path.")
-    parser.add_argument("--train_data_file_path", type=str, default="/data/tju/src/mindspore-dataset/wikitext2-train-mindrecord",
+    parser.add_argument("--train_data_file_path", type=str, default="/datasets/cnn_dailymail",
                         help="Data path, it is better to use absolute path")
-    parser.add_argument("--eval_data_file_path", type=str, default="/data/tju/src/mindspore-dataset/wikitext2-test-mindrecord",
+    parser.add_argument("--eval_data_file_path", type=str, default="/datasets/cnn_dailymail",
                         help="Data path, it is better to use absolute path")
     args_opt = parser.parse_args()
 
@@ -185,27 +206,31 @@ def run_summarization():
         raise ValueError("'eval_data_file_path' must be set when do evaluation task")
 
     device = args_opt.device_target
-    if device == "Ascend":
+    if device == "GPU":
+        context.set_context(mode=context.GRAPH_MODE, device_target="GPU", device_id=args_opt.device_id,max_call_depth=3000)
+        context.set_auto_parallel_context(parallel_mode="stand_alone")
+    elif device == "Ascend":
         context.set_context(mode=context.GRAPH_MODE, device_target="Ascend", device_id=args_opt.device_id)
         context.set_auto_parallel_context(parallel_mode="stand_alone")
     else:
-        raise Exception("Device target error, Ascend is supported.")
-
-    gpt2_loss = GPT2Summarization(config=gpt2_net_cfg,
-                         is_training=True,
-                         use_one_hot_embeddings=False)
+        raise Exception("Device target error, Ascend and Nvidia GPU is supported.")
+    
+    
 
     if args_opt.do_train.lower() == "true":
+        gpt2_loss = GPT2Summarization(config=gpt2_net_cfg,
+                         is_training=True,
+                         use_one_hot_embeddings=False)
         print("============== Start Loading Train Dataset ==============")
         train_dataset = create_cnn_dailymail_dataset(
-            dataset_path="/data/tju/src/mindspore-dataset/cnn_dailymail-train-mindrecord")
+            dataset_path="/datasets/cnn_dailymail/cnn_dailymail-train-mindrecord")
         do_train(train_dataset, gpt2_loss, load_pretrain_ckpt_path, save_finetune_ckpt_path, epoch_num)
 
     if args_opt.do_eval.lower() == "true":
         print("============ Start Loading Evaluation Dataset ============")
         eval_dataset = create_cnn_dailymail_dataset(
-            dataset_path="/data/tju/src/mindspore-dataset/cnn_dailymail-test-mindrecord")
-        do_eval(eval_dataset, GPT2Summarization, metric, load_finetune_ckpt_path)
+            dataset_path="/datasets/cnn_dailymail/cnn_dailymail-test-mindrecord")
+        do_eval(eval_dataset, GPT2SummarizationModel, metric, load_finetune_ckpt_path)
 
 
 
