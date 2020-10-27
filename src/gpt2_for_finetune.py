@@ -258,19 +258,21 @@ class GPT2Translation(nn.Cell):
         self.reshape = P.Reshape()
         self.shape = P.Shape()
         self.gather = P.GatherV2()
-        self.indices = Tensor(np.array([x for x in range(1, config.seq_length)]), mindspore.int32)
+        self.indices1 = Tensor(np.array([x for x in range(config.seq_length - 1)]), mindspore.int32)
+        self.indices2 = Tensor(np.array([x for x in range(1, config.seq_length)]), mindspore.int32)
 
     def construct(self, input_ids, input_mask, label_ids):
         translation_logits = self.gpt2(input_ids, input_mask) # [batch_size, seq_length, vocab_size]
         translation_logits = self.log_softmax(translation_logits)
 
-        shift_logits = translation_logits[::, :-1, ::] # [batch_size, seq_length - 1, vocab_size]
+        # shift_logits = translation_logits[::, :-1, ::] # [batch_size, seq_length - 1, vocab_size]
+        shift_logits = self.gather(translation_logits, self.indices1, 1)
         shift_logits = self.reshape(shift_logits, (-1, self.num_labels)) # [batch * (seq_length - 1), vocab_size]
         
-        label_ids = self.gather(label_ids, self.indices, 1) # [batch, seq_len -1]
+        label_ids = self.gather(label_ids, self.indices2, 1) # [batch, seq_len -1]
         # label_ids = label_ids[::, 1:] # [batch, seq_len -1]
         # input_mask = input_mask[::, 1:]
-        input_mask = self.gather(input_mask, self.indices, 1) # [batch, seq_len -1]
+        input_mask = self.gather(input_mask, self.indices2, 1) # [batch, seq_len -1]
         
         loss = self.loss(shift_logits, label_ids, input_mask)
         return loss
