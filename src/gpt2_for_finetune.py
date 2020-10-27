@@ -10,7 +10,8 @@ import mindspore.common.dtype as mstype
 from mindspore.nn.wrap.grad_reducer import DistributedGradReducer
 from mindspore import context
 from mindspore.context import ParallelMode
-from mindspore.parallel._utils import _get_device_num, _get_parallel_mode
+from mindspore.communication.management import get_group_size
+# from mindspore.parallel._utils import _get_device_num, _get_parallel_mode
 from .grad_clip import GRADIENT_CLIP_TYPE, GRADIENT_CLIP_VALUE, ClipGradients
 from src.utils.CrossEntropy import CrossEntropyCalculationWithMask
 from .GPT2ForLambada import GPT2LambadaModel
@@ -57,8 +58,8 @@ class GPT2FinetuneCell(nn.Cell):
         self.grad_reducer = None
         if self.reducer_flag:
             mean = context.get_auto_parallel_context("gradients_mean")
-            # degree = get_group_size()
-            degree = _get_device_num()
+            degree = get_group_size()
+            # degree = _get_device_num()
             self.grad_reducer = DistributedGradReducer(optimizer.parameters, mean, degree)
         self.is_distributed = (self.parallel_mode != ParallelMode.STAND_ALONE)
         self.clip_gradients = ClipGradients()
@@ -251,24 +252,23 @@ class GPT2Translation(nn.Cell):
         super(GPT2Translation, self).__init__()
         self.gpt2 = GPT2TranslationModel(config, is_training, use_one_hot_embeddings)
         self.num_labels = config.vocab_size
-        self.loss = CrossEntropyCalculationWithMask(is_training=is_training,num_labels=self.num_labels, config=config)
+        self.loss = CrossEntropyCalculationWithMask(is_training=is_training, num_labels=self.num_labels, config=config)
         self.is_training = is_training
         self.log_softmax = P.LogSoftmax(axis=-1)
         self.reshape = P.Reshape()
         self.shape = P.Shape()
-        self.cast = P.Cast()
-        self.gather = P.GatherV2()
-        self.label_indices = Tensor(np.array([x for x in range(1, config.seq_length)]), mindspore.int32)
+
 
     def construct(self, input_ids, input_mask, label_ids):
         translation_logits = self.gpt2(input_ids, input_mask) # [batch_size, seq_length, vocab_size]
+        translation_logits = self.log_softmax(translation_logits)
 
-        shift_logits = translation_logits[:, :-1, :] # [batch_size, seq_length - 1, vocab_size]
+        shift_logits = translation_logits[::, :-1, ::] # [batch_size, seq_length - 1, vocab_size]
         shift_logits = self.reshape(shift_logits, (-1, self.num_labels)) # [batch * (seq_length - 1), vocab_size]
-        label_ids = label_ids[::,1:] # [batch, seq_len -1]
-
-        shift_logits = self.log_softmax(shift_logits)
+        
+        label_ids = label_ids[::, 1:] # [batch, seq_len -1]
         input_mask = input_mask[::, 1:]
+        
         loss = self.loss(shift_logits, label_ids, input_mask)
         return loss
 
@@ -292,6 +292,7 @@ class GPT2CoQA(nn.Cell):
 
         loss = self.loss(shift_logits, label_ids, self.num_labels)
         return P.Cast()(loss, mstype.float32)
+
 
 class GPT2Summarization(nn.Cell):
     def __init__(self, config=None, is_training=None, use_one_hot_embeddings=False):

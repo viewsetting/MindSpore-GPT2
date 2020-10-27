@@ -25,7 +25,7 @@ from mindspore.context import ParallelMode
 from mindspore.communication.management import init, get_rank, get_group_size
 from src.GPT2_generation import Sample
 
-def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoint_path="", epoch_num=1,translate_direction="en-fr"):
+def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoint_path="", epoch_num=1):
     """
     Do train
     Args:
@@ -69,25 +69,30 @@ def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoin
 
     # load checkpoint into network
     ckpt_config = CheckpointConfig(save_checkpoint_steps=steps_per_epoch, keep_checkpoint_max=1)
-    ckpoint_cb = ModelCheckpoint(prefix="gpt2_translation_"+translate_direction,
+    ckpoint_cb = ModelCheckpoint(prefix="gpt2_translation_en_fr_",
                                  directory=None if save_checkpoint_path == "" else save_checkpoint_path,
                                  config=ckpt_config)
     param_dict = load_checkpoint(load_checkpoint_path)
-    reorganized_param_dict = dict()
-    for netName in param_dict:
-        reorganized_param_dict['gpt2.gpt2.'+netName] = param_dict[netName]
-    reorganized_param_dict['dense.weight'] = param_dict['gpt2_embedding_lookup.embedding_table']
-    load_param_into_net(network, reorganized_param_dict)
+    final_param_dict = {}
+    for k, v in param_dict.items():
+        final_param_dict['gpt2_loss.gpt2.gpt2.' + k] = param_dict[k]
+    # set the weights of final linear weights to weights of gpt2 token embedding
+    final_param_dict['gpt2_loss.gpt2.dense1.weight'] = param_dict['gpt2_embedding_lookup.embedding_table']
+    load_param_into_net(network, final_param_dict)
+    print("| loading the pretrained weights | \n")
 
     update_cell = DynamicLossScaleUpdateCell(loss_scale_value=2**32, scale_factor=2, scale_window=1000)
     netwithgrads = GPT2FinetuneCell(network, optimizer=optimizer, scale_update_cell=update_cell)
     netwithgrads.set_train(True)
     loss_cb = LossMonitor()
+
     model = Model(netwithgrads)
+    
     callbacks = [TimeMonitor(dataset.get_dataset_size()), loss_cb, ckpoint_cb]
+    
     print("============== Starting Training For Translation Task ==============")
     model.train(epoch_num, dataset, callbacks=callbacks)
-    print("============== Summrization Training Success ==============")
+    print("==============      Translation Training Success      ==============")
 
 
 def eval_result_print(metric="BLEU", callback=None):
@@ -168,34 +173,32 @@ def run_translation():
     parser = argparse.ArgumentParser(description="Finetune and Evaluate Summrization")
     parser.add_argument("--device_target", type=str, default="Ascend",
                         help="Device type. Default: Ascend.")
-    parser.add_argument("--device_id", type=int, default=0,
-                        help="ID of target device. ")
+    # parser.add_argument("--device_id", type=int, default=0,
+    #                     help="ID of target device. ")
     parser.add_argument("--metric_method", type=str, default="BLEU",
                         help="The eval method including [BLEU]. Default: BLEU.") 
-    parser.add_argument("--do_train", type=str, default="false",
+    parser.add_argument("--do_train", type=str, default="true",
                         help="Enable train. Default: false.")
     parser.add_argument("--do_eval", type=str, default="false",
                         help="Enable evaluation. Default: false.")
-    parser.add_argument("--epoch_num", type=int, default=2,
-                        help="Epoch number. Default: 2.")
+    parser.add_argument("--epoch_num", type=int, default=5,
+                        help="Epoch number. Default: 5.")
     parser.add_argument("--train_data_shuffle", type=str, default="true",
                         help="Enable train data shuffle. Default: true.")
     parser.add_argument("--eval_data_shuffle", type=str, default="false",
                         help="Enable eval data shuffle. Default: false.")
-    parser.add_argument("--save_finetune_ckpt_path", type=str, default="/home/tju/gpt2/pretrained_weights/saved/",
+    parser.add_argument("--save_finetune_ckpt_path", type=str, default="/home/tju/gpt2/pretrained-weight/saved/",
                         help="Save the checkpoint path.")
-    parser.add_argument("--load_pretrain_ckpt_path", type=str, default="/home/tju/gpt2/pretrained_weights/ms_model_small.ckpt",
+    parser.add_argument("--load_pretrain_ckpt_path", type=str, default="/home/tju/gpt2/pretrained_weights/mindspore_model_small.ckpt",
                         help="Load the checkpoint file path.")
-    parser.add_argument("--load_finetune_ckpt_path", type=str, default="/home/tju/gpt2/pretrained_weights/ms_model_small.ckpt",
+    parser.add_argument("--load_finetune_ckpt_path", type=str, default="/home/tju/gpt2/pretrained_weights/mindspore_model_small.ckpt",
                         help="Load the checkpoint file path.")
-    # parser.add_argument("--load_finetune_ckpt_path", type=str, default="/home/tju/gpt2/pretrained_weights/saved/"+"ms_model_small.ckpt",
-    #                     help="Load the checkpoint file path.")
-    parser.add_argument("--train_data_file_path", type=str, default="/home/tju/gpt2/1M",
+    parser.add_argument("--train_data_file_path", type=str, default="/home/tju/gpt2/MindSpore-GPT2/mindspore-dataset/en-fr-train-mindrecord",
                         help="Data path, it is better to use absolute path")
-    parser.add_argument("--eval_data_file_path", type=str, default="/home/tju/gpt2/1M",
+    parser.add_argument("--eval_data_file_path", type=str, default="/home/tju/gpt2/MindSpore-GPT2/mindspore-dataset/en-fr-test-mindrecord",
                         help="Data path, it is better to use absolute path")
-    parser.add_argument("--translate_direction", type=str, default="en-fr",
-                        help="translate from Language_A to Language_B: ['en-fr','fr-en']")
+    # parser.add_argument("--translate_direction", type=str, default="en-fr",
+    #                     help="translate from Language_A to Language_B: ['en-fr','fr-en']")
     parser.add_argument("--device_num", type=int, default=1,
                         help="device number")
     args_opt = parser.parse_args()
@@ -213,23 +216,27 @@ def run_translation():
     if args_opt.do_eval.lower() == "true" and args_opt.eval_data_file_path == "":
         raise ValueError("'eval_data_file_path' must be set when do evaluation task")
     
-    translate_direction = args_opt.translate_direction
-    if translate_direction not in ['en-fr','fr-en']:
-        raise ValueError("--translatate_direction should be in set: ['en-fr','fr-en']'")
+    # translate_direction = args_opt.translate_direction
+    # if translate_direction not in ['en-fr','fr-en']:
+    #     raise ValueError("--translatate_direction should be in set: ['en-fr','fr-en']'")
 
-    device = args_opt.device_target
-    if device == "GPU":
-        
-        context.set_context(mode=context.GRAPH_MODE, device_target="GPU", device_id=args_opt.device_id,max_call_depth=3000)
+    device_target = args_opt.device_target
+    
+    if device_target == "GPU":
+        context.set_context(mode=context.GRAPH_MODE, device_target="GPU", device_id=args_opt.device_id, max_call_depth=3000)
         context.set_auto_parallel_context(parallel_mode="stand_alone")
-    elif device == "Ascend":
-        #device_id = int(os.getenv('DEVICE_ID'))
-        device_id = args_opt.device_id
-        print("------- This is {} device  ------".format(device_id))
-        context.set_context(mode=context.GRAPH_MODE, device_target="Ascend", device_id=0)
-        context.set_auto_parallel_context(parallel_mode=ParallelMode.STAND_ALONE)
+    
+    elif device_target == "Ascend":
+        device_id = int(os.getenv('DEVICE_ID'))
+        # device_id = args_opt.device_id
+        print("-------| This is {} device, {} target, {} device numbers |------".format(device_id, device_target, args_opt.device_num))
+        context.set_context(mode=context.GRAPH_MODE, device_target=device_target, device_id=device_id)
+        context.set_auto_parallel_context(device_num=args_opt.device_num, parallel_mode=ParallelMode.DATA_PARALLEL, gradients_mean=True)
         # context.set_auto_parallel_context(parallel_mode=ParallelMode.DATA_PARALLEL,device_num = args_opt.device_num,gradients_mean=True)
-        # init()
+        init()
+        print("-------|   HCCL init finished    |-------")
+
+        save_finetune_ckpt_path = save_finetune_ckpt_path + 'ckpt_' + str(get_rank()) + "/"
     else:
         raise Exception("Device target error, Ascend and Nvidia GPU is supported.")
     
@@ -239,17 +246,16 @@ def run_translation():
 
     if args_opt.do_train.lower() == "true":
         gpt2_loss = GPT2Translation(config=gpt2_net_cfg,
-                         is_training=True,
-                         use_one_hot_embeddings=False)
+                                    is_training=True,
+                                    use_one_hot_embeddings=False)
         print("============== Start Loading Train Dataset ==============")
-        train_dataset = create_translation_dataset(
-            dataset_path="/home/tju/gpt2/"+translate_direction+"-train-mindrecord",rank_id=device_id,device_num=args_opt.device_num)
-        do_train(train_dataset, gpt2_loss, load_pretrain_ckpt_path, save_finetune_ckpt_path, epoch_num,translate_direction)
+        train_dataset = create_translation_dataset(dataset_path=args_opt.train_data_file_path)
+        do_train(train_dataset, gpt2_loss, load_pretrain_ckpt_path, save_finetune_ckpt_path, epoch_num)
 
     if args_opt.do_eval.lower() == "true":
         print("============ Start Loading Evaluation Dataset ============")
         eval_dataset = create_translation_dataset(
-            dataset_path="/home/tju/gpt2/"+translate_direction+"-test-mindrecord",rank_id=device_id,device_num=args_opt.device_num)
+            dataset_path="/home/tju/gpt2/"+translate_direction+"-test-mindrecord", rank_id=device_id, device_num=args_opt.device_num)
         do_eval(eval_dataset, GPT2TranslationModel, metric, load_finetune_ckpt_path,translate_direction)
 
 
