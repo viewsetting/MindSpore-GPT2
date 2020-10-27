@@ -11,7 +11,7 @@ from mindspore.nn.wrap.grad_reducer import DistributedGradReducer
 from mindspore import context
 from mindspore.context import ParallelMode
 from mindspore.communication.management import get_group_size
-# from mindspore.parallel._utils import _get_device_num, _get_parallel_mode
+from mindspore.parallel._utils import _get_device_num, _get_parallel_mode
 from .grad_clip import GRADIENT_CLIP_TYPE, GRADIENT_CLIP_VALUE, ClipGradients
 from src.utils.CrossEntropy import CrossEntropyCalculationWithMask
 from .GPT2ForLambada import GPT2LambadaModel
@@ -58,8 +58,8 @@ class GPT2FinetuneCell(nn.Cell):
         self.grad_reducer = None
         if self.reducer_flag:
             mean = context.get_auto_parallel_context("gradients_mean")
-            degree = get_group_size()
-            # degree = _get_device_num()
+            # degree = get_group_size()
+            degree = _get_device_num()
             self.grad_reducer = DistributedGradReducer(optimizer.parameters, mean, degree)
         self.is_distributed = (self.parallel_mode != ParallelMode.STAND_ALONE)
         self.clip_gradients = ClipGradients()
