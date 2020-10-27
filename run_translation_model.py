@@ -7,7 +7,7 @@ from src.gpt2_for_finetune import GPT2Translation,GPT2FinetuneCell
 from src.finetune_eval_config import cfg, gpt2_net_cfg
 from src.utils.metric_method import Rouge,BLEU
 from mindspore.nn import Accuracy
-from src.dataset import create_translation_dataset
+from src.dataset import create_translation_dataset_single
 from src.utils.lr_schedule import GPT2LearningRate
 from src.utils.losscallback import LossCallBack
 import mindspore.common.dtype as mstype
@@ -239,7 +239,7 @@ def run_translation():
 
     #     save_finetune_ckpt_path = save_finetune_ckpt_path + 'ckpt_' + str(get_rank()) + "/"
     else:
-        raise Exception("Device target error, Ascend and Nvidia GPU is supported.")
+        raise Exception("Device target error, Ascend and GPU is supported.")
     
 
     # if device == "Ascend":
