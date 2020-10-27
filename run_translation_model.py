@@ -251,7 +251,7 @@ def run_translation():
 
     if args_opt.do_train.lower() == "true":
         print("==============   Start Loading Train Dataset   ==============")
-        train_dataset = create_translation_dataset(dataset_path=args_opt.train_data_file_path)
+        train_dataset = create_translation_dataset_single(dataset_path=args_opt.train_data_file_path)
         do_train(train_dataset, gpt2_loss, load_pretrain_ckpt_path, save_finetune_ckpt_path, epoch_num)
 
     if args_opt.do_eval.lower() == "true":
