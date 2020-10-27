@@ -14,12 +14,12 @@ from mindspore.communication.management import get_group_size
 from mindspore.parallel._utils import _get_device_num, _get_parallel_mode
 from .grad_clip import GRADIENT_CLIP_TYPE, GRADIENT_CLIP_VALUE, ClipGradients
 from src.utils.CrossEntropy import CrossEntropyCalculationWithMask
-from .GPT2ForLambada import GPT2LambadaModel
-from .GPT2ForCBT import GPT2CBTModel
+# from .GPT2ForLambada import GPT2LambadaModel
+# from .GPT2ForCBT import GPT2CBTModel
 from .GPT2ForTranslation import GPT2TranslationModel
-from .GPT2ForLanguageModel import GPT2LanguageModel
-from .GPT2ForReadComprehension import GPT2CoQAModel
-from .GPT2ForSummarization import GPT2SummarizationModel
+# from .GPT2ForLanguageModel import GPT2LanguageModel
+# from .GPT2ForReadComprehension import GPT2CoQAModel
+# from .GPT2ForSummarization import GPT2SummarizationModel
 
 
 grad_scale = C.MultitypeFuncGraph("grad_scale")
@@ -257,7 +257,8 @@ class GPT2Translation(nn.Cell):
         self.log_softmax = P.LogSoftmax(axis=-1)
         self.reshape = P.Reshape()
         self.shape = P.Shape()
-
+        self.gather = P.GatherV2()
+        self.indices = Tensor(np.array([x for x in range(1, config.seq_length)]), mindspore.int32)
 
     def construct(self, input_ids, input_mask, label_ids):
         translation_logits = self.gpt2(input_ids, input_mask) # [batch_size, seq_length, vocab_size]
@@ -266,8 +267,10 @@ class GPT2Translation(nn.Cell):
         shift_logits = translation_logits[::, :-1, ::] # [batch_size, seq_length - 1, vocab_size]
         shift_logits = self.reshape(shift_logits, (-1, self.num_labels)) # [batch * (seq_length - 1), vocab_size]
         
-        label_ids = label_ids[::, 1:] # [batch, seq_len -1]
-        input_mask = input_mask[::, 1:]
+        label_ids = self.gather(label_ids, self.indices, 1) # [batch, seq_len -1]
+        # label_ids = label_ids[::, 1:] # [batch, seq_len -1]
+        # input_mask = input_mask[::, 1:]
+        input_mask = self.gather(input_mask, self.indices, 1) # [batch, seq_len -1]
         
         loss = self.loss(shift_logits, label_ids, input_mask)
         return loss
