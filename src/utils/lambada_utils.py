@@ -59,7 +59,7 @@ def create_lambada_mask(input_ids,config=None,tokenizer=None):
 
     mask: Tensor [batch_size,seq_length], tensor of whole-word masked tensor of last word
         example:
-        ---input_ids-->   Tensor([[464, 34822, 6378, 11, 356, 821, 30780, 4980, 50256,... ,50256]]) ---extract_string_from_tensor--> ["The Milky Way, we're renegading"] 
+        ---input_ids-->   Tensor([[50256, 464, 34822, 6378, 11, 356, 821, 30780, 4980, 50256,... ,50256]]) ---extract_string_from_tensor--> ["The Milky Way, we're renegading"] 
         ---tokenizer.encode--> [[464, 34822, 6378, 11, 356, 821, 30780, 4980]]  ---whole-word mask-->  Tensor([[0, 0, 0, 0, 0, 0, 1, 1, 0, ..., 0]])
 
     """
