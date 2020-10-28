@@ -244,7 +244,7 @@ class Sample():
         if self.demo_mode is True:
             assert self.batch_size == 1,'Demo mode requires batchsize euqals to 1, but get batch_size={}'.format(self.batch_size)
 
-    def extract_string_from_tensor(self, input_ids: Tensor,  mode="pair"):
+    def _extract_string_from_tensor(self, input_ids: Tensor,  mode="pair"):
         """
         Args:
             input_ids(Tensor): input tensor of sequence index. Shape: (self.batchsize,self.seq_length)
@@ -535,7 +535,7 @@ class Sample():
             summary_str: summary string in dataset as label or reference string
         """
 
-        article_str, summary_str = self.extract_string_from_tensor(
+        article_str, summary_str = self._extract_string_from_tensor(
             input_ids, mode="pair")
         
 
@@ -609,7 +609,7 @@ class Sample():
         """
 
         self.early_stop = True
-        source_str, ref_str = self.extract_string_from_tensor(
+        source_str, ref_str = self._extract_string_from_tensor(
             input_ids, mode="pair")
         
 
