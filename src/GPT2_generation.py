@@ -333,7 +333,7 @@ class Sample():
 
     
 
-    def tensorize_ids_with_masks(self, src_str):
+    def _tensorize_ids_with_masks(self, src_str):
         """
         Transform from string to tensor
 
@@ -441,7 +441,7 @@ class Sample():
 
                 
                 
-                input_ids, input_mask, len_str = self.tensorize_ids_with_masks(
+                input_ids, input_mask, len_str = self._tensorize_ids_with_masks(
                     full_str)
 
                 early_stop_mask = [0]*self.batch_size
