@@ -86,7 +86,7 @@ def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoin
     netwithgrads.set_train(True)
     loss_cb = LossMonitor()
 
-    model = Model(netwithgrads)
+    model = Model(netwithgrads, amp_level='O2')
     
     callbacks = [TimeMonitor(dataset.get_dataset_size()), loss_cb, ckpoint_cb]
     
