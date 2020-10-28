@@ -190,25 +190,23 @@ class GPT2Lambada(nn.Cell):
         super(GPT2Lambada, self).__init__()
         self.gpt2 = GPT2LambadaModel(config, is_training, use_one_hot_embeddings)
         self.num_labels = config.vocab_size
-        self.loss = CrossEntropyCalculation(is_training=is_training)
+        self.loss = CrossEntropyCalculationWithMask(is_training=is_training, num_labels=self.num_labels, config=config)
         self.is_training = is_training
         self.log_softmax = P.LogSoftmax(axis=-1)
         self.reshape = P.Reshape()
         self.shape = P.Shape()
         self.cast = P.Cast()
-        self.gather = P.GatherV2()
-        self.label_indices = Tensor(np.array([x for x in range(1, config.seq_length)]), mindspore.int32)
 
     def construct(self, input_ids, input_mask, label_ids):
         lm_logits = self.gpt2(input_ids, input_mask) # [batch_size, seq_length, vocab_size]
 
         shift_logits = lm_logits[:, :-1, :] # [batch_size, seq_length - 1, vocab_size]
         shift_logits = self.reshape(shift_logits, (-1, self.num_labels)) # [batch * (seq_length - 1), vocab_size]
-        label_ids = self.gather(label_ids, self.label_indices, 1) # [batch, seq_len -1]
-
-        loss = self.loss(shift_logits, label_ids, self.num_labels)
-        return self.cast(loss, mstype.float32)
-
+        
+        label_ids = label_ids[::, 1:]
+        input_mask = input_mask[::, 1:]
+        loss = self.loss(shift_logits, label_ids, input_mask)
+        return loss
 
 class GPT2CBT(nn.Cell):
     def __init__(self, config, is_training, use_one_hot_embeddings=False, num_labels=10):
