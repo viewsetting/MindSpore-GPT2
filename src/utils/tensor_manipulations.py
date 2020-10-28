@@ -3,6 +3,7 @@ from mindspore import dtype as mstype
 from mindspore.ops import operations as P
 from typing import TypeVar, Union
 from tokenization import Tokenizer
+import numpy as np
 
 def extract_string_from_tensor(input_ids: Tensor, mode="single",config = None, tokenizer = None):
         """
@@ -18,9 +19,8 @@ def extract_string_from_tensor(input_ids: Tensor, mode="single",config = None, t
                 Example:
                 for pair mode,  it will return prompt_list, reference_list
         """
-        #assert tokenizer is not None, 'There is no tokenizer'
 
-        assert config is not None, 'There is no GPT2-config'
+        assert config is not None, 'There is no GPT2-config, the configuration is compulsory parameter'
 
         if tokenizer is None:
             tokenizer = Tokenizer()
@@ -91,5 +91,66 @@ def extract_string_from_tensor(input_ids: Tensor, mode="single",config = None, t
 
         
         else:
-            #assert True != True, ('mode:{} not supported.'.format(mode))
             raise NotImplementedError('mode:{} not supported.'.format(mode))
+
+
+
+def tensorize_ids_with_masks(src_str,config=None,tokenizer=None):
+        """
+        Transform from string to tensor
+
+        Args:
+            src_str: string or list of strings
+        Return:
+            input_ids: Tensor(self.batch_size, self.seq_length)
+            input_mask: Tensor(self.batch_size, self.seq_length)
+            src_len: length of tokens of src_string after decoded by self.tokenzier
+        """
+        if type(src_str)==str:
+            src_str = [src_str]
+        
+        assert config is not None, 'There is no GPT2-config, the configuration is compulsory parameter'
+
+        if tokenizer is None:
+            tokenizer = Tokenizer()
+            print('[WARNING] parameter: tokenizer is missing in utils.tensor_manipulations.tensorize_ids_with_masks, using Tokenizer() as default tokenizer')
+
+
+        batch_size = config.batch_size
+        seq_length = config.seq_length
+        reshape = P.Reshape()
+        concat = P.Concat()
+
+        input_shape = (batch_size, seq_length)
+        single_sentence_shape = (1,seq_length)
+        src_len_list = list()
+        input_ids = None
+        input_mask = None
+        for batch_idx in range(batch_size):
+            src_list=tokenizer.encode(src_str[batch_idx])
+            #src_list = self.tokenizer.encode(src_str)
+            src_len = len(src_list)
+            if src_len > seq_length:
+                src_list = src_list[:seq_length]
+                src_len = seq_length
+            
+            src_len_list.append(src_len)
+            ret_dict = tokenizer.prepare_for_model(
+            src_list, max_length=config.seq_length, add_special_tokens=False)
+
+            input_ids_list = ret_dict['input_ids']
+            input_mask_list = ret_dict['attention_mask']
+
+            input_ids_tensor = reshape(
+            Tensor(np.array(input_ids_list, dtype=int), dtype=mstype.int32), single_sentence_shape)
+            input_mask_tensor = reshape(
+            Tensor(np.array(input_mask_list, dtype=int), dtype=mstype.int32), single_sentence_shape)
+            if batch_idx == 0:
+                input_ids = input_ids_tensor
+                input_mask = input_mask_tensor
+            else:
+                input_ids = concat((input_ids,input_ids_tensor))
+                input_mask = concat((input_mask,input_mask_tensor))
+            
+
+        return input_ids, input_mask, src_len_list
