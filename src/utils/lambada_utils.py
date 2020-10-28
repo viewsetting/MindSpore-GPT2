@@ -10,10 +10,30 @@ import numpy as np
 def split_by_last_word(string_list):
     """
     split list of strings list by last word 
+    
+    Args:
+        string_list: list(str), list of text in form of str
+    
+    Returns:
+        list,list
+        the list of text with last word removed and the last word text list
+
     """
     return [ ' '.join(s.split()[:-1]) for s in string_list],[ s.split()[-1:][0] for s in string_list]
 
 def get_lastword_range(prefix,stringlist,tokenizer=None):
+    """
+    Get the range of lastword tokenized index in label_ids
+
+    Args:
+        prefix: list(str), list of text with its last word removed(a.k.a. "prefix") in form of str
+        stringlist: list(str), list of text, same as it is in split_by_last_word 
+        tokenizer: GPT2Tokenizer, if not initiated, it will be created using the default setting in utils.tokenization, optional
+    
+    Returns:
+        lastword_range: list(tuple), start and end postion of last word of each text of stringlist that used in selecting tokenized 
+        last word index in logits. lastword_logits --> logits[batch_index,start:end,::] 
+    """
     if tokenizer is None:
         tokenizer = Tokenizer()
         print('[WARNING] parameter: tokenizer is missing in utils.lambada_utils.last_word_index, using Tokenizer() as default tokenizer')
@@ -26,7 +46,24 @@ def get_lastword_range(prefix,stringlist,tokenizer=None):
     return lastword_range
 
 def create_lambada_mask(input_ids,config=None,tokenizer=None):
-    #assert config is not None,'GPT2_config should not be None'
+    """
+    create whole word mask for the last word of text in lambada dataset.
+
+    Args:
+
+    input_ids: Tensor [batch_size,seq_length], tensor of tokenized index of input
+    config: GPT2Config, config of GPT2 model, if not initiated, this function will create a MockConfig by params of input_ids, optional
+    tokenizer: GPT2Tokenizer, if not initiated, it will be created using the default setting in utils.tokenization, optional
+
+    Return:
+
+    mask: Tensor [batch_size,seq_length], tensor of whole-word masked tensor of last word
+        example:
+        ---input_ids-->   Tensor([[464, 34822, 6378, 11, 356, 821, 30780, 4980, 50256,... ,50256]]) ---extract_string_from_tensor--> ["The Milky Way, we're renegading"] 
+        ---tokenizer.encode--> [[464, 34822, 6378, 11, 356, 821, 30780, 4980]]  ---whole-word mask-->  Tensor([[0, 0, 0, 0, 0, 0, 1, 1, 0, ..., 0]])
+
+    """
+    
     if config is None:
         config = MockConfig()
         config.batch_size = input_ids.shape[0]
@@ -97,7 +134,7 @@ if __name__=='__main__':
     # mock_logits[1][7][2412] = 100
     softmax = P.LogSoftmax(axis=-1)
     
-
+   
     input_ids = Tensor(pad,dtype=mstype.int32)
     logits = Tensor(mock_logits,dtype=mstype.float32)
     logits = softmax(logits)
@@ -110,6 +147,9 @@ if __name__=='__main__':
     print(t.decode([5112,2412]))
     loss = calculate_lambada_loss(input_ids,logits)
     print(loss,np.exp(loss.asnumpy()[0]))
+    print(t.encode('The Milky Way, we\'re renegading'))
+    print(t.decode([464, 34822, 6378, 11, 356, 821]))
+    print(t.decode([30780, 4980]))
 
 """ mock_logits with exactly matching
 
