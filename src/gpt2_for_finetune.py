@@ -199,14 +199,17 @@ class GPT2Lambada(nn.Cell):
 
     def construct(self, input_ids, input_mask, label_ids):
         lm_logits = self.gpt2(input_ids, input_mask) # [batch_size, seq_length, vocab_size]
-
-        shift_logits = lm_logits[:, :-1, :] # [batch_size, seq_length - 1, vocab_size]
-        shift_logits = self.reshape(shift_logits, (-1, self.num_labels)) # [batch * (seq_length - 1), vocab_size]
         
-        label_ids = label_ids[::, 1:]
-        input_mask = input_mask[::, 1:]
-        loss = self.loss(shift_logits, label_ids, input_mask)
-        return loss
+        if self.is_training:
+            shift_logits = lm_logits[:, :-1, :] # [batch_size, seq_length - 1, vocab_size]
+            shift_logits = self.reshape(shift_logits, (-1, self.num_labels)) # [batch * (seq_length - 1), vocab_size]
+        
+            label_ids = label_ids[::, 1:]
+            input_mask = input_mask[::, 1:]
+            loss = self.loss(shift_logits, label_ids, input_mask)
+            return loss
+        
+        return lm_logits
 
 class GPT2CBT(nn.Cell):
     def __init__(self, config, is_training, use_one_hot_embeddings=False, num_labels=10):
