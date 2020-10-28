@@ -14,3 +14,4 @@ create_*.sh
 *.dat
 test_*.py
 src/utils/multi-bleu.perl
+src/finetune_eval_config.py
