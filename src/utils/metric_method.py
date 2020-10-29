@@ -2,6 +2,7 @@ import math
 import numpy as np
 import tempfile
 import re
+import string
 import subprocess
 from .rouge_score import get_rouge_score
 from .bleu_score import sum_bleu
@@ -121,6 +122,29 @@ class BLEU():
         #self.bleu += moses_multi_bleu(np.array(hypotheses),np.array(references))
         #print(type(self.bleu))
         self.total_num += 1
+
+
+class WholeWordAccuracy():
+    def __init__(self):
+        self.acc_num = int(0)
+        self.total_num = int(0)
+    def normalize(self,word):
+        def remove_punc(text):
+            exclude = set(string.punctuation)
+            return ''.join(ch for ch in text if ch not in exclude)
+        def lower(text):
+            return text.lower()
+        return remove_punc(lower(word))
+
+    def update(self,output,label):
+        if type(output) is str and type(label) is str:
+            output = [output]
+            label = [label]
+        for output_word,label_word in zip(output,label):
+            self.total_num += 1
+            if self.normalize(output_word) == self.normalize(label_word):
+                self.acc_num+=1
+        print("=========== whole word accuracy is {} ===========".format(self.acc_num / self.total_num))
 
 """BLEU metric implementation.
 """
