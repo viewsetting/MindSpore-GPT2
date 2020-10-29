@@ -541,20 +541,20 @@ class Sample():
 
         generated_summary_list= [""]*self.batch_size
 
-        # print("[Debug INFO] generate_for_CNN_DAILYMAIL: article_str before\n",len(article_str))
-        # print(article_str)
-        
+                
         #pad a <TL,DR;> token(<EOS>) after the string of Article.
         if TL_DR:
             for article_idx in range(self.batch_size):
                 article_str[article_idx]+=(" "+self.tokenizer.eos_token)
         
-        #print("[DEBUG INFO] Sample.generate_for_CNN_DAILYMAIL article_str:")
-        #print(article_str)
+        print("[DEBUG INFO] Sample.generate_for_CNN_DAILYMAIL article_str:")
+        print(article_str)
 
         generate_str_list, _ = self.generate(
             input_str=article_str, generate_length=generate_length)
 
+        # print("[DEBUG INFO] Sample.generate_for_CNN_DAILYMAIL generate_str_list:")
+        # print(generate_str_list)
         
         for article_idx in range(self.batch_size):
             generate_str = generate_str_list[article_idx]
