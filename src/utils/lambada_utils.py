@@ -21,7 +21,7 @@ def split_by_last_word(string_list):
     """
     return [ ' '.join(s.split()[:-1]) for s in string_list],[ s.split()[-1:][0] for s in string_list]
 
-def get_lastword_range(prefix,stringlist,tokenizer=None):
+def _get_lastword_range(prefix,stringlist,tokenizer=None):
     """
     Get the range of lastword tokenized index in label_ids
 
@@ -73,7 +73,7 @@ def create_lambada_mask(input_ids,config=None,tokenizer=None):
     #print(string_list)
     prefix, _ = split_by_last_word(string_list)
     #print(prefix)
-    lastword_range = get_lastword_range(prefix,string_list,tokenizer)
+    lastword_range = _get_lastword_range(prefix,string_list,tokenizer)
 
     batch_size = config.batch_size
     seq_length = config.seq_length
@@ -87,7 +87,23 @@ def create_lambada_mask(input_ids,config=None,tokenizer=None):
     mask = Tensor(mask_np,dtype=mstype.float32)
 
     return mask
-    
+
+def get_lastword_range(input_ids,config=None,tokenizer=None):
+    if tokenizer is None:
+        tokenizer = Tokenizer()
+    if config is None:
+        config = MockConfig()
+        config.batch_size = input_ids.shape[0]
+        config.seq_length = input_ids.shape[1]
+
+    string_list = extract_string_from_tensor(input_ids,mode='single',tokenizer=tokenizer,config=config)
+    #print(string_list)
+    prefix, _ = split_by_last_word(string_list)
+    #print(prefix)
+    lastword_range = _get_lastword_range(prefix,string_list,tokenizer)
+    return lastword_range
+
+
 def calculate_lambada_loss(input_ids,logits,config=None,loss_net=None,tokenizer=None):
     if tokenizer is None:
         tokenizer = Tokenizer()
@@ -107,7 +123,32 @@ def calculate_lambada_loss(input_ids,logits,config=None,loss_net=None,tokenizer=
 
     loss = loss_net(logits,label_ids,lambada_mask[::,:config.seq_length-1])
     return loss
+
+def get_wholeword_pair(input_ids,logits,config=None,tokenizer=None):
+    if tokenizer is None:
+        tokenizer = Tokenizer()
+    if config is None:
+        config = MockConfig()
+        config.batch_size = input_ids.shape[0]
+        config.seq_length = input_ids.shape[1]
+        config.vocab_size = tokenizer.vocab_size
     
+    argmax = P.Argmax(axis=-1)
+    reshape = P.Reshape()
+    lastword_range = get_lastword_range(input_ids,config)
+    ids = input_ids[::,1:].asnumpy()
+    logits_argmax = argmax(reshape(logits,(config.batch_size*config.seq_length,-1)))
+    logits_argmax = reshape(logits_argmax,(config.batch_size,config.seq_length))
+    logits_idx = logits_argmax.asnumpy()
+
+
+    output_ids = [ logit[index[0]:index[1]].tolist() for index,logit in zip(lastword_range,logits_idx)]
+    label_ids = [ id_[index[0]:index[1]].tolist() for index,id_ in zip(lastword_range,ids)]
+
+    output_str = [ tokenizer.decode(output_id) for output_id in output_ids ]
+    label_str = [ tokenizer.decode(label_id) for label_id in label_ids ]
+
+    return output_str,label_str
     
 class MockConfig:
     def __init__(self):
@@ -119,19 +160,21 @@ if __name__=='__main__':
     s=['I am good.','She is mine']
     print(split_by_last_word(s))
     x,y = split_by_last_word(s)
-    print(get_lastword_range(x,y))
+    print(_get_lastword_range(x,y))
     t = Tokenizer()
     print([ t.encode(sen) for sen in s])
 
     eos_id = t.eos_token_id
     
     pad = np.full((2,1024),eos_id,dtype=int)
-    pad[0][1:9] = [1450,1112,2133,17809,3232,3214,31243,4214]
+    print(t.decode([464, 34822, 6378, 11, 356, 821,30780, 4980]),"  ",t.decode([999,1000,1111,38198,6433,21331,5112,2412]))
+    pad[0][1:9] = [464, 34822, 6378, 11, 356, 821,30780, 4980]
     pad[1][1:9] = [999,1000,1111,38198,6433,21331,5112,2412]
     mock_logits = np.full((2,1024,t.vocab_size),float(1/t.vocab_size),dtype=float)
-    mock_logits[0][7][4214] = 100
-    # mock_logits[1][6][5112] = 100
-    # mock_logits[1][7][2412] = 100
+    mock_logits[0][7][4980] = 100
+    mock_logits[0][6][30780] = 100
+    mock_logits[1][6][5112] = 100
+    mock_logits[1][7][2412] = 100
     softmax = P.LogSoftmax(axis=-1)
     
    
@@ -150,6 +193,11 @@ if __name__=='__main__':
     print(t.encode('The Milky Way, we\'re renegading'))
     print(t.decode([464, 34822, 6378, 11, 356, 821]))
     print(t.decode([30780, 4980]))
+
+    logits = P.Cast()(logits,mstype.float32)
+    output_word,label_word = get_wholeword_pair(input_ids,logits)
+    print("get_wholeword_pair:")
+    print(output_word,label_word)
 
 """ mock_logits with exactly matching
 
