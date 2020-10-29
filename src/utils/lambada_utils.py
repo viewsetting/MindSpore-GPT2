@@ -89,6 +89,18 @@ def create_lambada_mask(input_ids,config=None,tokenizer=None):
     return mask
 
 def get_lastword_range(input_ids,config=None,tokenizer=None):
+    """
+    Get the range of lastword tokenized index in input_ids
+
+    Args:
+        input_ids: Tensor(batch_size,seq_length)
+        config: GPT2Config, config of GPT2 model, if not initiated, this function will create a MockConfig by params of input_ids, optional
+        tokenizer: GPT2Tokenizer, if not initiated, it will be created using the default setting in utils.tokenization, optional
+    
+    Returns:
+        lastword_range: list(tuple), start and end postion of last word of each text of stringlist that used in selecting tokenized 
+        last word index in logits. lastword_logits --> logits[batch_index,start:end,::] 
+    """
     if tokenizer is None:
         tokenizer = Tokenizer()
     if config is None:
@@ -97,14 +109,27 @@ def get_lastword_range(input_ids,config=None,tokenizer=None):
         config.seq_length = input_ids.shape[1]
 
     string_list = extract_string_from_tensor(input_ids,mode='single',tokenizer=tokenizer,config=config)
-    #print(string_list)
     prefix, _ = split_by_last_word(string_list)
-    #print(prefix)
+
     lastword_range = _get_lastword_range(prefix,string_list,tokenizer)
+
     return lastword_range
 
 
 def calculate_lambada_loss(input_ids,logits,config=None,loss_net=None,tokenizer=None):
+    """
+    calculate loss value for lambada
+
+    Args:
+        input_ids: Tensor(batch_size,seq_length), indexs of input text
+        logits: Tensor(batch_size,seq_length,vocab_size), distribution of each token in each batch of text
+        config: GPT2Config, config of GPT2 model, if not initiated, this function will create a MockConfig by params of input_ids, optional
+        loss_net: nn.Cell, a network to caluculate loss by taking a mask, if not initiated, it will use src.utils.CrossEntropyCalculationWithMask as default, optional
+        tokenizer: GPT2Tokenizer, if not initiated, it will be created using the default setting in utils.tokenization, optional
+    Return:
+        loss: float, cross entropy between last word of model's output and label given by lambada
+    
+    """
     if tokenizer is None:
         tokenizer = Tokenizer()
     if config is None:
@@ -122,9 +147,23 @@ def calculate_lambada_loss(input_ids,logits,config=None,loss_net=None,tokenizer=
     lambada_mask = create_lambada_mask(input_ids,config,tokenizer)
 
     loss = loss_net(logits,label_ids,lambada_mask[::,:config.seq_length-1])
-    return loss
+    return loss.asnumpy()[0]
 
 def get_wholeword_pair(input_ids,logits,config=None,tokenizer=None):
+    """
+    get whole word str from input_ids and logits
+
+    Args:
+        input_ids: Tensor(batch_size,seq_length), indexs of input text
+        logits: Tensor(batch_size,seq_length,vocab_size), distribution of each token in each batch of text
+        config: GPT2Config, config of GPT2 model, if not initiated, this function will create a MockConfig by params of input_ids, optional
+        tokenizer: GPT2Tokenizer, if not initiated, it will be created using the default setting in utils.tokenization, optional
+
+    Returns:
+        output_str: [str], output of model, decoded from the maximum index of logits
+        label_str: [str], lastword str given lambada as label
+
+    """
     if tokenizer is None:
         tokenizer = Tokenizer()
     if config is None:
@@ -133,18 +172,27 @@ def get_wholeword_pair(input_ids,logits,config=None,tokenizer=None):
         config.seq_length = input_ids.shape[1]
         config.vocab_size = tokenizer.vocab_size
     
+    #initiate operators
     argmax = P.Argmax(axis=-1)
     reshape = P.Reshape()
+
+    #lastword_range is a list of tuples, seems like [...,(start_position_i,end_position_i),...]
     lastword_range = get_lastword_range(input_ids,config)
+
+    #input_ids requires to shift right for one step for its every first token is <BOS> 
     ids = input_ids[::,1:].asnumpy()
+    #(batch_size,seq_length,vocab_size) --reshape--> (batch_size*seq_length,vocab_size) --argmax--> (batch_size*seq_length)
     logits_argmax = argmax(reshape(logits,(config.batch_size*config.seq_length,-1)))
+    #(batch_size*seq_length) --reshape--> (batch_size,seq_length), get index with max prob for each token in output logits
     logits_argmax = reshape(logits_argmax,(config.batch_size,config.seq_length))
+    #convert indexed logits to numpy
     logits_idx = logits_argmax.asnumpy()
 
-
+    #filter out index of last word in output and label
     output_ids = [ logit[index[0]:index[1]].tolist() for index,logit in zip(lastword_range,logits_idx)]
     label_ids = [ id_[index[0]:index[1]].tolist() for index,id_ in zip(lastword_range,ids)]
 
+    #use GPT2Tokenizer to decode them into list of str
     output_str = [ tokenizer.decode(output_id) for output_id in output_ids ]
     label_str = [ tokenizer.decode(label_id) for label_id in label_ids ]
 
@@ -189,7 +237,7 @@ if __name__=='__main__':
     print(t.decode([4214]))
     print(t.decode([5112,2412]))
     loss = calculate_lambada_loss(input_ids,logits)
-    print(loss,np.exp(loss.asnumpy()[0]))
+    print(loss,np.exp(loss))
     print(t.encode('The Milky Way, we\'re renegading'))
     print(t.decode([464, 34822, 6378, 11, 356, 821]))
     print(t.decode([30780, 4980]))
