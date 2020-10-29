@@ -70,9 +70,9 @@ def create_lambada_mask(input_ids,config=None,tokenizer=None):
         config.seq_length = input_ids.shape[1]
 
     string_list = extract_string_from_tensor(input_ids,mode='single',tokenizer=tokenizer,config=config)
-    #print(string_list)
+
     prefix, _ = split_by_last_word(string_list)
-    #print(prefix)
+
     lastword_range = _get_lastword_range(prefix,string_list,tokenizer)
 
     batch_size = config.batch_size
