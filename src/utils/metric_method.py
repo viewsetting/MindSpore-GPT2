@@ -149,7 +149,7 @@ class BLEU():
         self.total_num += 1
 
 
-class WholeWordAccuracy():
+class LastWordAccuracy():
     def __init__(self):
         self.acc_num = int(0)
         self.total_num = int(0)
@@ -182,7 +182,7 @@ class WholeWordAccuracy():
             self.total_num += 1
             if self.normalize(output_word) == self.normalize(label_word):
                 self.acc_num+=1
-        print("=========== whole word accuracy is {} ===========".format(self.acc_num / self.total_num))
+        print("=========== last word accuracy is {} ===========".format(self.acc_num / self.total_num))
 
 """BLEU metric implementation.
 """
