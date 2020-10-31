@@ -4,7 +4,7 @@ import argparse
 import math
 from src.gpt2_for_finetune import GPT2FinetuneCell, GPT2Lambada
 from src.finetune_eval_config import cfg, gpt2_net_cfg
-from src.utils.metric_method import LastTokenAccuracy,WholeWordAccuracy 
+from src.utils.metric_method import LastTokenAccuracy,LastWordAccuracy 
 from src.dataset import create_language_model_dataset
 from src.utils.lr_schedule import GPT2LearningRate
 from src.utils.losscallback import LossCallBack
