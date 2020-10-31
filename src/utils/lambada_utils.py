@@ -177,7 +177,7 @@ def get_wholeword_pair(input_ids,logits,config=None,tokenizer=None):
     reshape = P.Reshape()
 
     #lastword_range is a list of tuples, seems like [...,(start_position_i,end_position_i),...]
-    lastword_range = get_lastword_range(input_ids,config)
+    lastword_range = get_lastword_range(input_ids,config,tokenizer=tokenizer)
 
     #input_ids requires to shift right for one step for its every first token is <BOS> 
     ids = input_ids[::,1:].asnumpy()
