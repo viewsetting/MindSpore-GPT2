@@ -25,6 +25,31 @@ class Accuracy():
         self.total_num += len(labels)
         print("=========== accuracy is {} ===========".format(self.acc_num / self.total_num))
 
+class LastTokenAccuracy():
+    """
+    calculate accuracy
+    """
+    def __init__(self):
+        self.acc_num = 0
+        self.total_num = 0
+
+    def update(self, logits, labels):
+        labels = labels.asnumpy()
+        #labels = labels[:, 1:]
+        # print("Accuracy labels length: {}".format(len(labels[0])))
+        labels = np.reshape(labels, -1)
+        logits = logits.asnumpy()
+        logits_id = np.argmax(logits, axis=-1)
+        logits_id = np.reshape(logits_id,-1)    
+#         print("After argmax: logits_id shape,label shape:",logits_id.shape,labels.shape)
+#         print("logits_id: ",logits_id)
+#         print("labels_id: ",labels)
+        self.acc_num += np.sum(labels == logits_id)
+        self.total_num += len(labels)
+        print("acc_num:",self.acc_num)
+        print("total_num",self.total_num)
+        print("=========== Last token Accuracy is {} ===========".format(self.acc_num / self.total_num)) 
+        
 def postprocess(backpointers, best_tag_id):
     '''
     Do postprocess
