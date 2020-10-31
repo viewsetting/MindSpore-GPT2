@@ -49,7 +49,51 @@ class LastTokenAccuracy():
         print("acc_num:",self.acc_num)
         print("total_num",self.total_num)
         print("=========== Last token Accuracy is {} ===========".format(self.acc_num / self.total_num)) 
-        
+    
+  
+class LastWordAccuracy():
+    def __init__(self,smooth=True,min_overlap=3):
+        self.acc_num = 0
+        self.total_num = 0
+        self.smooth = smooth
+        self.min_overlap = min_overlap
+    def normalize(self,word):
+        word = word.lstrip()
+        word = word.rstrip()
+        def remove_punc(text):
+            exclude = set(string.punctuation)
+            return ''.join(ch for ch in text if ch not in exclude)
+        def lower(text):
+            return text.lower()
+        return remove_punc(lower(word))
+    
+    # (output_string,label_string)
+    def overlap(self,a,b):
+        len_b = len(b)
+        max_len = 0
+        for i in range(len_b-1):
+            for j in range(i+self.min_overlap,len_b+1):
+                b_ =b[i:j]
+                if b_ in a:
+                    max_len = max(max_len,len(b_))
+                else:
+                    break
+        return max_len / len(a)
+
+    def update(self,output,label):
+        if type(output) is str and type(label) is str:
+            output = [output]
+            label = [label]
+        for output_word,label_word in zip(output,label):
+            self.total_num += 1
+#             if self.normalize(output_word) == self.normalize(label_word):
+#                 self.acc_num+=1
+            if self.smooth is False:
+                if self.normalize(output_word) == self.normalize(label_word):
+                    self.acc_num+=1
+            else:
+                self.acc_num += self.overlap(self.normalize(label_word),self.normalize(output_word))
+        print("=========== last word accuracy is {} ===========".format(self.acc_num / self.total_num))
 def postprocess(backpointers, best_tag_id):
     '''
     Do postprocess
@@ -147,42 +191,6 @@ class BLEU():
         #self.bleu += moses_multi_bleu(np.array(hypotheses),np.array(references))
         #print(type(self.bleu))
         self.total_num += 1
-
-
-class LastWordAccuracy():
-    def __init__(self):
-        self.acc_num = int(0)
-        self.total_num = int(0)
-    def normalize(self,word):
-        def remove_punc(text):
-            exclude = set(string.punctuation)
-            return ''.join(ch for ch in text if ch not in exclude)
-        def lower(text):
-            return text.lower()
-        return remove_punc(lower(word))
-    
-    # (output_string,label_string)
-    def overlap(self,a,b):
-        len_b = len(b)
-        max_len = 0
-        for i in range(len_b-1):
-            for j in range(i+self.min_overlap,len_b+1):
-                b_ =b[i:j]
-                if b_ in a:
-                    max_len = max(max_len,len(b_))
-                else:
-                    break
-        return max_len / len(a)
-
-    def update(self,output,label):
-        if type(output) is str and type(label) is str:
-            output = [output]
-            label = [label]
-        for output_word,label_word in zip(output,label):
-            self.total_num += 1
-            if self.normalize(output_word) == self.normalize(label_word):
-                self.acc_num+=1
-        print("=========== last word accuracy is {} ===========".format(self.acc_num / self.total_num))
 
 """BLEU metric implementation.
 """
