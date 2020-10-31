@@ -135,6 +135,19 @@ class WholeWordAccuracy():
         def lower(text):
             return text.lower()
         return remove_punc(lower(word))
+    
+    # (output_string,label_string)
+    def overlap(self,a,b):
+        len_b = len(b)
+        max_len = 0
+        for i in range(len_b-1):
+            for j in range(i+self.min_overlap,len_b+1):
+                b_ =b[i:j]
+                if b_ in a:
+                    max_len = max(max_len,len(b_))
+                else:
+                    break
+        return max_len / len(a)
 
     def update(self,output,label):
         if type(output) is str and type(label) is str:
