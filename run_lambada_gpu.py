@@ -122,7 +122,7 @@ def do_eval(dataset=None, metric=None, load_checkpoint_path=""):
         print("Prepare to calculate the accuracy score ...")
         # callback = Accuracy()
         # callback = SingleTokenAccuracy()
-        callback = WholeWordAccuracy()
+        callback = LastWordAccuracy()
         gpt2_loss = GPT2Lambada(config=gpt2_net_cfg,
                            is_training=False,
                            use_one_hot_embeddings=False)
