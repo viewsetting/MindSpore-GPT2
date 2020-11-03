@@ -233,7 +233,7 @@ class Sample():
         self.return_logits=return_logits
         
         self.filter_distribution = TopKTopP_Filter(
-                    self.batch_size, self.vocab_size,k=self.topk_num,p=self.topp_prob,
+                    self.batch_size, self.vocab_size, k=self.topk_num,p=self.topp_prob,
                     temperature=self.temperature,min_tokens_to_keep=self.min_tokens_to_keep)
 
         if self.tokenizer is not None:
@@ -444,7 +444,7 @@ class Sample():
                 input_ids, input_mask, len_str = self._tensorize_ids_with_masks(
                     full_str)
 
-                early_stop_mask = [0]*self.batch_size
+                early_stop_mask = [0] * self.batch_size
                 
                 
                 logits = self.decoder.predict(input_ids, input_mask)
@@ -539,7 +539,7 @@ class Sample():
             input_ids, mode="pair")
         
 
-        generated_summary_list= [""]*self.batch_size
+        generated_summary_list= [""] * self.batch_size
 
                 
         #pad a <TL,DR;> token(<EOS>) after the string of Article.
@@ -592,52 +592,56 @@ class Sample():
 
         return generated_summary_list, summary_str  # Hypo and Ref
 
-    def generate_for_Translation(self, input_ids, max_generate_length=150):
+    def generate_for_Translation(self, input_ids, use_hint=True, select_first_sentence=True, max_generate_length=150):
 
         """
         Args
-            input_ids(Tennor): input_ids(shape: (self.batch_size,s self.eq_length)) of dataset which is sampled from mindrecord
-            generate_length(int): tokens to generate
-            select_sentence(int): number of leading sentences in generation to be selected for hypothesis string.
-                            0 for return full generation, if there are less sentences in generation, full generation will
-                            be returned, either.
-            TL_DR(bool): True for one "TL,DR" token padded in article, False for no.
+            input_ids (Tensor): input_ids(shape: (self.batch_size, self.seq_length) of dataset which is sampled from mindrecord
+            use_hint (bool): wheather use the "=" hint to help infer in Translation task (english sentence = french sentence). Default: True.
+            select_first_sentence (bool): wheather use the first generated sentence as the translation result. Default: True.
+            max_generate_length: the max token length of generation sentence. Default: 150.
     
         Return:
-            generated_summary: generated string of the model
-            summary_str: summary string in dataset as label or reference string
+            final_translation_list (List[String]): the final translation results, shape [batch_size].
+            ref_str_list (List[String]): the traget/reference translation results, shape [batch_size].
         """
 
         self.early_stop = True
-        source_str, ref_str = self._extract_string_from_tensor(
+        source_str_list, ref_str_list = self._extract_string_from_tensor(
             input_ids, mode="pair")
         
 
-        generated_translation_list= [""]*self.batch_size
+        final_translation_list= [""] * self.batch_size
 
-        # print("[Debug INFO] generate_for_CNN_DAILYMAIL: article_str before\n",len(article_str))
-        # print(article_str)
+        if use_hint:
+            for index in range(self.batch_size):
+                source_str_list[index] += " =" # now source_str is "english sentence ="
+
+        translation_str_list, _ = self.generate(input_str=source_str_list, generate_length=max_generate_length)
         
-        #pad a <TL,DR;> token(<EOS>) after the string of Article.
-       
-        for source_idx in range(self.batch_size):
-            source_str[source_idx]+=(" "+self.tokenizer.eos_token)
-        
-        #print("[DEBUG INFO] Sample.generate_for_CNN_DAILYMAIL article_str:")
-        #print(article_str)
+        for index in range(self.batch_size):
+            generate_str = translation_str_list[index]
+            predict_tarnslation = ""
+            
+            # Acording to the GPT2 paper, the select_first_sentence will be set "True"
+            if select_first_sentence:
+                # check if there are number of select_sentence of sentences in generated text,if not enough, it will return full generated string
+                search_index = generate_str.find('.', 0, len(generate_str))
+                if search_index == -1:
+                    search_index = len(generate_str) # not find "."
+                else:
+                    search_index = search_index + 1 # find "." successfully
+                predict_tarnslation = generate_str[:search_index]
+            else:
+                predict_tarnslation = generate_str
 
-        generate_str_list, _ = self.generate(
-            input_str=source_str, generate_length=max_generate_length)
-
-        
-        for article_idx in range(self.batch_size):
-            generate_str = generate_str_list[article_idx]
-            if generate_str == '':
-                generated_str = '<empty>'
-            generated_translation_list[article_idx] = generated_str
+            if predict_tarnslation == '':
+                predict_tarnslation = '<empty>'
+            
+            final_translation_list[index] = predict_tarnslation
 
 
-        return generated_translation_list, ref_str  # Hypo and Ref
+        return final_translation_list, ref_str_list  # Hypo and Ref
 
 
 
