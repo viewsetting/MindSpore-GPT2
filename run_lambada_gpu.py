@@ -3,14 +3,16 @@ import numpy
 import argparse
 import math
 from src.gpt2_for_finetune import GPT2FinetuneCell, GPT2Lambada
+from src.GPT2ForLambada import GPT2LambadaModel
 from src.finetune_eval_config import cfg, gpt2_net_cfg
 from src.utils.metric_method import LastTokenAccuracy,LastWordAccuracy 
 from src.dataset import create_language_model_dataset
 from src.utils.lr_schedule import GPT2LearningRate
 from src.utils.losscallback import LossCallBack
 from src.utils.extract_logits_lambada import extract_logits_for_lambada
-from src.utils.lambada_utils import get_wholeword_pair
+from src.utils.lambada_utils import get_wholeword_pair,get_wholeword_label_str
 from src.utils.tokenization import Tokenizer
+from src.GPT2_generation import Sample
 import mindspore
 import mindspore.common.dtype as mstype
 from mindspore import context
@@ -22,7 +24,7 @@ from mindspore.common.tensor import Tensor
 from mindspore.train.model import Model
 from mindspore.train.callback import CheckpointConfig, ModelCheckpoint, TimeMonitor, LossMonitor
 from mindspore.train.serialization import load_checkpoint, load_param_into_net
-
+# from src.GPT2_generation import Sample
 def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoint_path="", epoch_num=1):
     """
     Do train
@@ -121,9 +123,10 @@ def do_eval(dataset=None, metric=None, load_checkpoint_path=""):
     if metric.lower() == "accuracy":
         print("Prepare to calculate the accuracy score ...")
         # callback = Accuracy()
-        # callback = SingleTokenAccuracy()
-        callback = LastWordAccuracy()
-        gpt2_loss = GPT2Lambada(config=gpt2_net_cfg,
+        # callback = LastWordAccuracy()
+        # callback = LastTokenAccuracy()
+        callback = LastWordAccuracy(smooth=False)
+        gpt2_loss = GPT2LambadaModel(config=gpt2_net_cfg,
                            is_training=False,
                            use_one_hot_embeddings=False)
 
@@ -131,23 +134,26 @@ def do_eval(dataset=None, metric=None, load_checkpoint_path=""):
         param_dict = load_checkpoint(load_checkpoint_path)
         final_param_dict = {}
         for k, v in param_dict.items():
-            final_param_dict['gpt2_loss.gpt2.gpt2.' + k] = param_dict[k]
+            final_param_dict['gpt2.' + k] = param_dict[k]
 
 
         # set the weights of final linear weights to weights of gpt2 token embedding
-        final_param_dict['gpt2_loss.gpt2.dense1.weight'] = param_dict['gpt2_embedding_lookup.embedding_table']
+        final_param_dict['dense1.weight'] = param_dict['gpt2_embedding_lookup.embedding_table']
         load_param_into_net(gpt2_loss, final_param_dict)
         model = Model(gpt2_loss)
         tokenizer = Tokenizer(vocab_file='./src/utils/pretrain-data/gpt2-vocab.json',
-        merge_file='./src/utils/pretrain-data/gpt2-merges.txt')
-
+                            merge_file='./src/utils/pretrain-data/gpt2-merges.txt')
+        
+        sample = Sample(decoder = model,model_config=gpt2_net_cfg,tokenizer=tokenizer,topk_num=1,topp_prob=1,return_ids=True)
         columns_list = ["input_ids", "input_mask", "label_ids"]
-        print("============= Testing LAMBADA Accuracy =============")
+        print("============= Testing LAMBADA ACC =============")
+        cnt  = 0
         for data in dataset.create_dict_iterator():
             input_data = []
             for i in columns_list:
                 input_data.append(data[i])
             input_ids, input_mask, label_ids = input_data
+            print("===========LAMBADA ACC iteration:{}==========".format(cnt))
             # input_ids = Tensor(input_ids, mindspore.int32)
             # input_mask = Tensor(input_mask, mindspore.int32)
             # label_ids = Tensor(label_ids, mindspore.int32)
@@ -155,23 +161,22 @@ def do_eval(dataset=None, metric=None, load_checkpoint_path=""):
             print("input_mask_shape: {}".format(input_mask.shape))
             print("label_ids_shape: {}".format(label_ids.shape))
             
-            logits = model.predict(input_ids, input_mask, label_ids)
+            logits = model.predict(input_ids, input_mask)
             print("="*40)
             # print("after predict logits shape:",logits.shape)         (8,1024,50257)
-            # logits, label_ids, no_mask_length = extract_logits_for_lambada(logits, label_ids, input_mask)
-            output_str,label_str = get_wholeword_pair(input_ids,logits,config=gpt2_net_cfg,tokenizer=tokenizer)
-            output_str = [callback.normalize(str) for str in output_str]
-            label_str = [callback.normalize(str) for str in label_str]
-            print("output_string:",output_str)
-            print(" label_string:",label_str)
-
+            output_str = sample.generate_for_LAMBADA(input_ids = input_ids,logits = logits, max_generate_length=3, max_iterations=30)
+            label_str = get_wholeword_label_str(input_ids=input_ids,config=gpt2_net_cfg,tokenizer=tokenizer)
             # print("logits shape: {}".format(logits.shape))
             # print("logits: \n{}".format(logits))
             # print("===================================")
+            print("==============================================")
+            print(output_str)
+            print(label_str)
             callback.update(output_str, label_str)
+            # callback.update(logits, label_ids)  
+            cnt += 1
         print("==============================================")
         eval_result_print(metric, callback)
-        print("==============================================")
         print("************** Testing Finished **************")
 
     elif metric.lower() == "ppl":
@@ -203,8 +208,6 @@ def do_eval(dataset=None, metric=None, load_checkpoint_path=""):
 
         print("load new parameter successfully!\n")
         model = Model(gpt2_loss)
-        tokenizer = Tokenizer(vocab_file='./src/utils/pretrain-data/gpt2-vocab.json',
-        merge_file='./src/utils/pretrain-data/gpt2-merges.txt')
 
         columns_list = ["input_ids", "input_mask", "label_ids"]
         print("================= Testing LAMBADA PPL =================")
