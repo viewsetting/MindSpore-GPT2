@@ -545,11 +545,11 @@ class Sample():
 
         generated_summary_list= [""] * self.batch_size
 
-        tl_dr_str = "TL;DR:"
+        tldr_str = "TL;DR:"
         #pad a <TL,DR;> token(<EOS>) after the string of Article.
         if TL_DR:
             for article_idx in range(self.batch_size):
-                article_str[article_idx]+=(" "+tl_dr_str)
+                article_str[article_idx]+=(" "+tldr_str)
         
         # print("[DEBUG INFO] Sample.generate_for_CNN_DAILYMAIL article_str:")
         # print(article_str)
