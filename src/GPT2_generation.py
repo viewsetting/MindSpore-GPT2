@@ -5,6 +5,7 @@ import mindspore.nn as nn
 from mindspore.ops import operations as P
 from mindspore import Tensor, Model, Parameter
 from mindspore import dtype as mstype
+from src.utils.extract_logits_lambada import extract_logits
 
 INF = 1. * 1e9
 
@@ -646,7 +647,93 @@ class Sample():
 
         return final_translation_list, ref_str_list  # Hypo and Ref
 
+    def generate_for_LAMBADA(self, input_ids,logits,max_generate_length=3,max_iterations=20):
+        """
+        Args:
+            input_ids(Tennor): input_ids(shape: (self.batch_size,self.seq_length)) of dataset which is sampled from mindrecord
+            logits: (batch_size,seq_length,vocab_size) (8,1024,50257)
+            max_generate_length(int): the number of tokens to generate
+    
+        Return:
+            generated_last_word: generated the last word of lambada
+        """
 
+        self.early_stop = False
+        self.return_ids = True
+        self.topk_num = 1
+        self.topp_prob = 1.0
+        source_str = self._extract_string_from_tensor(input_ids,mode="single")
+        
+        #True if generated
+        generate_batch_flag = [False]*self.batch_size
+
+        #All of the batches are generated 
+        all_true = [True]*self.batch_size
+
+        #lastword string list
+        # final_generations = [""*self.batch_size]        # [""*bsz]
+        final_generations = ["" for _ in range(self.batch_size)]        # ['','',',...'']
+
+        MAX_NUM = 99999
+
+        stop_word = [self.tokenizer.eos_token,'.',',','!','?','"',"~"]
+       # tokenizer = Tokenizer(vocab_file="utils/pretrain-data/gpt2-vocab.json", merge_file="utils/pretrain-data/gpt2-merges.txt")
+        # source_str = self.extract_string_from_tensor(input_ids, mode="single")
+        lastword_start_pos_ = get_lastword_range(input_ids = input_ids,config=self.model_config,tokenizer=self.tokenizer)     # [(left_pos,right_pos)] -> batch_size for list length
+        lastword_start_pos = []  
+        for item in lastword_start_pos_:
+            lastword_start_pos.append(item[0])
+
+        logits = extract_logits(logits = logits, seq_pos=lastword_start_pos)  #(8,1,50257)
+        #final_logits = np.argmax(output_logits,axis = -1)          #(8,) [ids of list]
+        topk = P.TopK(sorted=True)
+        _ , sorted_ids = topk(logits,max_iterations)
+        sorted_ids = sorted_ids.asnumpy()                       # [batch_size,1,max_iterations]
+        sorted_ids = sorted_ids.reshape((-1,max_iterations))    # [batch_size,max_iterations]
+        sorted_ids = sorted_ids.T                               # [max_iterations,batch_size]
+        sorted_ids = sorted_ids.tolist()                        # [[121,3,123,41],[3123,3123,43,12],...,]  (100,8)
+
+        for i in range(max_iterations):
+            # source_str +=
+            ids = sorted_ids[i]
+            ids_str = [ self.tokenizer.decode([x]) for x in ids]
+            cat_str = [x+y for x,y in zip(source_str,ids_str)]
+            generate_ids_list = self.generate(input_str=cat_str, generate_length=2) # [[23,34,45,78,90],[34,56,79,89,667] ]
+            # print("generate_ids_list :",generate_ids_list.shape)
+            cat_ids_list = [[x]+y for x,y in zip(ids,generate_ids_list)]
+            res_str_list = [self.tokenizer.decode(word) for word in cat_ids_list]       # [" hel lo <|endoftext|>","word ",...]
+            # print("===========[DEBUG] generate_for_LAMBADA res_str_list ===== iteration:{}==========".format(i))
+            print(res_str_list)
+            
+            #res_str_list = [word.lstrip().rstrip() for word in res_str_list]            # ["hel lo","word",...]
+            for j in range(self.batch_size):
+                if generate_batch_flag[j]:
+                    continue
+                
+                eos_pos = min( res_str_list[j].find(word) if res_str_list[j].find(word) >=0 else MAX_NUM for word in stop_word)
+                # print("EOS_pos: ",eos_pos )
+                #eos_pos = min(res_str_list[j].find('.'),res_str_list[j].find(self.tokenizer.eos_token),res_str_list[j].find('.'),)
+                if eos_pos == MAX_NUM:
+                    continue    
+                else:
+                    res_str_list[j] = res_str_list[j][:eos_pos]
+                
+                res_str_list[j] = res_str_list[j].lstrip().rstrip()
+                print(res_str_list[j])
+
+                if res_str_list[j].find(" ") == -1 :     # don't have space in a word, set True
+                    if res_str_list[j] == "":
+                        continue
+                    
+                    generate_batch_flag[j] = True
+                    final_generations[j] = res_str_list[j] 
+
+            #print(generate_batch_flag)
+            if all_true == generate_batch_flag:
+                # print("Success")
+                break
+
+        return final_generations
 
 if __name__ == '__main__':
     #s = Sample(None)
