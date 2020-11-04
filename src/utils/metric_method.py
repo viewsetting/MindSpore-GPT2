@@ -90,6 +90,7 @@ class Rouge():
         self.RougeLR = -1.0
     def update(self,hypothesis,targets):
         scores = get_rouge_score(hypothesis,targets)
+<<<<<<< Updated upstream
         self.Rouge1 = scores['rouge-1']['f']*100
         self.Rouge2 = scores['rouge-2']['f']*100
         self.RougeL = scores['rouge-l']['f']*100
@@ -99,3 +100,105 @@ class Rouge():
         self.Rouge1R = scores['rouge-1']['r']*100
         self.Rouge2R = scores['rouge-2']['r']*100
         self.RougeLR = scores['rouge-l']['r']*100
+=======
+        self.Rouge1 += scores['rouge-1']['f']*100
+        self.Rouge2 += scores['rouge-2']['f']*100
+        self.RougeL += scores['rouge-l']['f']*100
+        self.total_num += 1
+        print((self.Rouge1+self.Rouge2+self.RougeL)/(3.0*self.total_num))
+        
+
+class BLEU():
+    def __init__(self,tokenizer=None):
+        self.bleu = float(0.0)
+        self.total_num = int(0)
+        self.tokenizer = tokenizer
+    def update(self,hypotheses,references):
+        
+        hypo_l = []
+        ref_l = []
+        if tokenizer is not None:
+            for hypo,ref in zip(hypotheses,references):
+                hypo_l.append(tokenizer.encode(hypo))
+                ref_l.append(tokenizer.encode(ref))
+        hypotheses = hypo_l
+        references = ref_l
+        #print(hypotheses)
+        
+        bleu_avg,res_list = sum_bleu(references,hypotheses)
+        self.bleu += bleu_avg*100
+        #print(res_list)
+        #self.bleu += moses_multi_bleu(np.array(hypotheses),np.array(references))
+        #print(type(self.bleu))
+        self.total_num += 1
+
+"""BLEU metric implementation.
+"""
+
+def moses_multi_bleu(hypotheses, references, lowercase=False):
+    """Calculate the bleu score for hypotheses and references
+    using the MOSES ulti-bleu.perl script.
+    Args:
+    hypotheses: A numpy array of strings where each string is a single example.
+    references: A numpy array of strings where each string is a single example.
+    lowercase: If true, pass the "-lc" flag to the multi-bleu script
+    Returns:
+    The BLEU score as a float32 value.
+    """
+
+    if np.size(hypotheses) == 0:
+        return np.float32(0.0)
+
+    # Get MOSES multi-bleu script
+    # try:
+    #     multi_bleu_path, _ = urllib.request.urlretrieve(
+    #         "https://raw.githubusercontent.com/moses-smt/mosesdecoder/"
+    #         "master/scripts/generic/multi-bleu.perl")
+    #     os.chmod(multi_bleu_path, 0o755)
+    # except: #pylint: disable=W0702
+    #     print("Unable to fetch multi-bleu.perl script, using local.")
+    # metrics_dir = os.path.dirname(os.path.realpath(__file__))
+    # bin_dir = os.path.abspath(os.path.join(metrics_dir, "..", "..", "bin"))
+    # multi_bleu_path = os.path.join(bin_dir, "tools/multi-bleu.perl")
+    multi_bleu_path = "./src/utils/multi-bleu.perl"
+
+    # Dump hypotheses and references to tempfiles
+    hypothesis_file = tempfile.NamedTemporaryFile()
+    hypothesis_file.write("\n".join(hypotheses).encode("utf-8"))
+    hypothesis_file.write(b"\n")
+    hypothesis_file.flush()
+    reference_file = tempfile.NamedTemporaryFile()
+    reference_file.write("\n".join(references).encode("utf-8"))
+    reference_file.write(b"\n")
+    reference_file.flush()
+
+    # Calculate BLEU using multi-bleu script
+    with open(hypothesis_file.name, "r") as read_pred:
+        bleu_cmd = [multi_bleu_path]
+        if lowercase:
+            bleu_cmd += ["-lc"]
+        bleu_cmd += [reference_file.name]
+        try:
+            bleu_out = subprocess.check_output(bleu_cmd, stdin=read_pred, stderr=subprocess.STDOUT)
+            bleu_out = bleu_out.decode("utf-8")
+            bleu_score = re.search(r"BLEU = (.+?),", bleu_out).group(1)
+            bleu_score = float(bleu_score)
+        except subprocess.CalledProcessError as error:
+            if error.output is not None:
+                print("multi-bleu.perl script returned non-zero exit code")
+                print(error.output)
+                bleu_score = np.float32(0.0)
+
+    # Close temp files
+    hypothesis_file.close()
+    reference_file.close()
+    return bleu_score
+
+if __name__=="__main__":
+    from tokenization import Tokenizer
+    tokenizer = Tokenizer(vocab_file='./src/utils/pretrain-data/gpt2-vocab.json',
+        merge_file='./src/utils/pretrain-data/gpt2-merges.txt')
+    b = BLEU(tokenizer)
+    b.update(['I am his fathers.','You are here.'],['I am his father.','I am here.'])
+    print(b.bleu,type(b.bleu))
+>>>>>>> Stashed changes

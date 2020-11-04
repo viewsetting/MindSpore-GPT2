@@ -14,7 +14,7 @@ cfg = edict({
         'eps': 1e-6,
     }),
     'Lamb': edict({
-        'learning_rate': 2e-5,
+        'learning_rate': 5e-5,
         'end_learning_rate': 1e-7,
         'power': 1.0,
         'weight_decay': 0.01,
@@ -31,7 +31,11 @@ three kinds of GPT2 model version
 """
 if cfg.gpt2_network == 'small':
     gpt2_net_cfg = GPT2Config(
+<<<<<<< Updated upstream
         batch_size=1,
+=======
+        batch_size=4,
+>>>>>>> Stashed changes
         seq_length=1024,
         vocab_size=50257,
         d_model=768,

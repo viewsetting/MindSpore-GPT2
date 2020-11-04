@@ -400,7 +400,84 @@ class GPT2Tokenizer():
 
         return encoded_inputs
 
+<<<<<<< Updated upstream
 def Tokenizer():
+=======
+class CNN_DailyMail_tokenizer(GPT2Tokenizer):
+    def prepare_for_model(self,
+                          ids,
+                          pair_ids,
+                          max_length=1024,
+                          max_summary_length = 150,
+                          add_special_tokens=True,
+                          padding=None,
+                          return_overflowing_tokens=False,
+                          return_attention_mask=True,
+                          input_mask_strategy='<BOS>'):
+
+        #pair = bool(pair_ids is not None)
+        #assert (ids is None ) or  (pair_ids is None),"ids and pair_ids can not be None at the same time."
+        len_ids = len(ids)
+        len_pair_ids = len(pair_ids)
+
+        encoded_inputs = {}
+        # Compute the total size of the returned encodings
+        total_len = len_ids + len_pair_ids
+
+        ids_overflowing_tokens = []
+        pair_overflowing_tokens = []
+        # Truncation: Handle max sequence length
+        if total_len > max_length-3:
+            if len_pair_ids > max_summary_length:
+                pair_ids, pair_overflowing_tokens = self.truncate_sequences(ids=pair_ids,
+                                                              num_tokens_to_remove=len_pair_ids - max_summary_length,
+                                                              truncation_strategy="ONLY_FIRST",
+                                                              direction="RIGHT")
+                if len_ids+max_summary_length > max_length-3:
+                    ids, ids_overflowing_tokens = self.truncate_sequences(ids=ids,
+                                                              num_tokens_to_remove=(len_ids+max_summary_length) - (max_length-3),
+                                                              truncation_strategy="ONLY_FIRST",
+                                                              direction="RIGHT")
+                
+            else:
+                ids, ids_overflowing_tokens = self.truncate_sequences(ids=ids,
+                                                              num_tokens_to_remove=total_len - (max_length-3),
+                                                              truncation_strategy="ONLY_FIRST",
+                                                              direction="RIGHT")
+            if return_overflowing_tokens:
+                    encoded_inputs["article_overflowing_tokens"] = ids_overflowing_tokens
+                    encoded_inputs["highlights_overflowing_tokens"] = pair_overflowing_tokens
+                    encoded_inputs["num_truncated_tokens"] = total_len - (max_length-3)
+
+        
+        sequence = self.build_inputs_with_special_tokens(ids, pair_ids)
+        seq_len = len(sequence)
+
+        # build output dictionary
+        encoded_inputs["input_ids"] = sequence
+        # check lengths
+        if max_length is None or len(encoded_inputs["input_ids"]) > max_length:
+            logger.warning(
+                "Token indices sequence length is longer than the specified maximum sequence length "
+                "for this model ({} > {}). Running this sequence through the model will result in "
+                "indexing errors".format(len(ids), max_length)
+            )
+        # padding
+        if padding or return_attention_mask:
+            encoded_inputs = self.pad(encoded_inputs=encoded_inputs,
+                                      max_length=max_length,
+                                      padding_strategy="MAX_LENGTH",
+                                      return_attention_mask=return_attention_mask)
+            if input_mask_strategy == '<BOS>':
+                encoded_inputs['attention_mask'][0] = 0
+                encoded_inputs['attention_mask'][1] = 0
+
+            
+        return encoded_inputs
+    
+
+def Tokenizer(vocab_file = "./pretrain-data/gpt2-vocab.json",merge_file = "./pretrain-data/gpt2-merges.txt",mode="normal"):
+>>>>>>> Stashed changes
     """ use the GPT2Tokenizer"""
     vocab_file = "./pretrain-data/gpt2-vocab.json"
     merge_file = "./pretrain-data/gpt2-merges.txt"
