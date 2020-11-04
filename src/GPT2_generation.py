@@ -195,7 +195,7 @@ class Sample():
         early_stop(bool): whether stop when the model generates <EOS> token. It is functioned when batch_size is 1.
     """
 
-    def __init__(self, decoder, model_config=None, generate_length=1, tokenizer=None,  input_ids=None, input_mask=None,  topk_num=0, topp_prob=1.0, temperature = 1.0,min_tokens_to_keep=1, early_stop=False,demo_mode=False,return_logits=False):
+    def __init__(self, decoder, model_config=None, generate_length=1, tokenizer=None,  input_ids=None, input_mask=None,  topk_num=0, topp_prob=1.0, temperature = 1.0,min_tokens_to_keep=1, early_stop=False,demo_mode=False,return_ids=False):
 
         # several checks for string mode or input tensors a.k.a. Tensor mode
         assert model_config is not None, 'Config is a must for sampling.'
@@ -230,7 +230,7 @@ class Sample():
         self.concat = P.Concat()
         self.early_stop = early_stop
         self.demo_mode = demo_mode
-        self.return_logits=return_logits
+        self.return_ids=return_ids
         
         self.filter_distribution = TopKTopP_Filter(
                     self.batch_size, self.vocab_size, k=self.topk_num,p=self.topp_prob,
@@ -414,7 +414,7 @@ class Sample():
             assert generate_length >= 0, 'generate_length can not be negative.'
             self.generate_length = generate_length
 
-
+        return_ids_list = [[] for i in range(self.batch_size)]
         for i in range(self.generate_length):
 
             # Tensor Mode
@@ -486,7 +486,7 @@ class Sample():
                     real_index, (-1,))  # Tensor (batch_size,)
 
                 #print("REAL_INDEX: ",sampled_next_word_index)
-
+                
                 sampled_next_word_index_list = sampled_next_word_index.asnumpy().tolist()
 
                 for batch_idx in range(self.batch_size):
@@ -499,6 +499,7 @@ class Sample():
                     if early_stop_mask[batch_idx] == 1 and self.early_stop is True:
                         continue
                     next_word_str = self.tokenizer.decode([next_word_index])
+                    return_ids_list[batch_idx].append(next_word_index)
                     full_str[batch_idx] += next_word_str
                     generate_str[batch_idx] += next_word_str
 
@@ -511,11 +512,13 @@ class Sample():
 
 
         if self.batch_size == 1 and self.demo_mode is True:
-            if self.return_logits == True:
-                return generate_str[0], full_str[0],logits
+            if self.return_ids == True:
+                return generate_str[0], full_str[0],return_ids_list[0]
             else:
                 return generate_str[0], full_str[0]
         else:
+            if self.return_ids == True:
+                return return_ids_list
             return generate_str, full_str
 
 
