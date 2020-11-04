@@ -197,7 +197,37 @@ def get_wholeword_pair(input_ids,logits,config=None,tokenizer=None):
     label_str = [ tokenizer.decode(label_id) for label_id in label_ids ]
 
     return output_str,label_str
+def get_wholeword_label_str(input_ids,config=None,tokenizer=None):
+    """
+    get whole word label_str from input_ids 
+    Args:
+        input_ids: Tensor(batch_size,seq_length), indexs of input text
+        config: GPT2Config, config of GPT2 model, if not initiated, this function will create a MockConfig by params of input_ids, optional
+        tokenizer: GPT2Tokenizer, if not initiated, it will be created using the default setting in utils.tokenization, optional
+    Returns:
+        label_str: [str], lastword str given lambada as label
+    """
+    if tokenizer is None:
+        tokenizer = Tokenizer()
+    if config is None:
+        config = MockConfig()
+        config.batch_size = input_ids.shape[0]
+        config.seq_length = input_ids.shape[1]
+        config.vocab_size = tokenizer.vocab_size
+
+    #lastword_range is a list of tuples, seems like [...,(start_position_i,end_position_i),...]
+    lastword_range = get_lastword_range(input_ids,config,tokenizer=tokenizer)
+
+    #input_ids requires to shift right for one step for its every first token is <BOS> 
+    ids = input_ids[::,1:].asnumpy()
+
+    label_ids = [ id_[index[0]:index[1]].tolist() for index,id_ in zip(lastword_range,ids)]
     
+    # use GPT2Tokenizer to decode
+    label_str = [ tokenizer.decode(label_id) for label_id in label_ids ]
+
+    return label_str
+
 class MockConfig:
     def __init__(self):
         pass
