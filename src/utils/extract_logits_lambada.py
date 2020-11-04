@@ -32,3 +32,24 @@ def extract_logits_for_lambada(logits=None, label_ids=None, input_mask=None):
     # print("output final_label_ids:\n{}".format(final_label_ids))
 
     return output_logits, final_label_ids, no_mask_length
+
+def extract_logits(logits = None, seq_pos = None):
+    """
+    Args
+        logits: (batch_size,seq_length,vocab_size) (8,1024,50257)
+        seq_pos:(batch_size) list 
+
+    Return:
+        output_logits: (batch_size,1,vocab_size) extract the logit to predict the last token.
+    """
+    for i in range(gpt2_net_cfg.batch_size):
+        logit = logits[i:i+1:1, seq_pos[i]:seq_pos[i]+1:1, ::]
+        # print("extract_logits logit shape: {}".format(logit.shape))
+        if i == 0 :
+            output_logits = logit
+        else:
+            output_logits = P.Concat()((output_logits, logit))
+
+    # print("final logits:",output_logits)
+    
+    return output_logits
