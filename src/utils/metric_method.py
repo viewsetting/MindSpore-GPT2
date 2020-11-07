@@ -166,6 +166,8 @@ class Rouge():
         self.Rouge2 += scores['rouge-2']['f']*100
         self.RougeL += scores['rouge-l']['f']*100
         self.total_num += 1
+
+        print("========== ROUGE_so_far ==========\n    {}     \n===================".format((self.Rouge1+self.Rouge2+self.RougeL)/float(3.0*self.total_num)))
         
 
 class BLEU():
