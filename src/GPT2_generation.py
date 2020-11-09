@@ -414,7 +414,6 @@ class Sample():
         else:
             full_str = input_str
         
-        self.input_ids = input_ids
 
         if generate_length is not None:
             generate_length = int(generate_length)
