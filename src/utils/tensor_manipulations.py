@@ -154,3 +154,25 @@ def tensorize_ids_with_masks(src_str,config=None,tokenizer=None):
             
 
         return input_ids, input_mask, src_len_list
+
+
+def extract_single_token_logits(logits = None, seq_pos = None):
+    """
+    Args
+        logits: (batch_size,seq_length,vocab_size) e.g. when batchsize is 8, sequence length is 1024 and vocab_size is 50257,
+        then logits is a Tensor with shape (8,1024,50257)
+        seq_pos:(batch_size) list 
+
+    Return:
+        output_logits: (batch_size,1,vocab_size) extract the logit to predict the last token.
+    """
+
+    batch_size = logits.shape[0]
+    for i in range(batch_size):
+        logit = logits[i:i+1:1, seq_pos[i]:seq_pos[i]+1:1, ::]
+        if i == 0 :
+            output_logits = logit
+        else:
+            output_logits = P.Concat()((output_logits, logit))
+
+    return output_logits
