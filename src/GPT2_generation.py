@@ -6,6 +6,8 @@ from mindspore.ops import operations as P
 from mindspore import Tensor, Model, Parameter
 from mindspore import dtype as mstype
 from .utils.extract_logits_lambada import extract_logits
+from .utils.tensor_manipulations import extract_single_token_logits
+from mindspore.context import get_context
 
 INF = 1. * 1e9
 
@@ -194,9 +196,14 @@ class Sample():
         topk_num(int): number of K in top-K Sampling, 0 for no condition constrained, tantamount to K = self.vocab_size. Default:0
         topp_prob(float): probability parameter of topp sampling if p = 1.0, then it equals to do nothing. (nucleus sampling)
         early_stop(bool): whether stop when the model generates <EOS> token. It is functioned when batch_size is 1.
+        return_ids(bool): whether return ids generated from Sample. Default: False
+        return_last_token_logits(bool): whether return logits of last token for each time step during generation. Default: False
     """
 
-    def __init__(self, decoder, model_config=None, generate_length=1, tokenizer=None,  input_ids=None, input_mask=None,  topk_num=0, topp_prob=1.0, temperature=1.0, min_tokens_to_keep=1, early_stop=False, demo_mode=False, return_ids=False):
+    def __init__(self, decoder, model_config=None, generate_length=1, tokenizer=None,  
+        input_ids=None, input_mask=None,  
+        topk_num=0, topp_prob=1.0, temperature=1.0, min_tokens_to_keep=1, early_stop=False, 
+        demo_mode=False, return_ids=False,return_last_token_logits=False):
 
         # several checks for string mode or input tensors a.k.a. Tensor mode
         assert model_config is not None, 'Config is a must for sampling.'
@@ -232,6 +239,7 @@ class Sample():
         self.early_stop = early_stop
         self.demo_mode = demo_mode
         self.return_ids = return_ids
+        self.return_last_token_logits = return_last_token_logits
 
         self.filter_distribution = TopKTopP_Filter(
                     self.batch_size, self.vocab_size, k=self.topk_num, p=self.topp_prob,
@@ -381,14 +389,44 @@ class Sample():
         return input_ids, input_mask, src_len_list
 
     def _gather_real_word(self, select_word, real_word_index):
-        select_word_np = select_word.asnumpy()
-        range_index = np.arange(0, self.batch_size)
-        select_word_merge = [[index, word]
-            for index, word in zip(range_index, select_word_np)]
-        word_index_2D = Tensor(select_word_merge, dtype=mstype.int32)
-        gather = P.GatherNd()
-        real_selected_word_ids = gather(word_index_2D, real_word_index)
+
+        # get device type ["GPU","CPU","Ascend",...]
+        device_target = get_device('device_target')
+
+        # mindspore.ops.Gather is supported in MindSpore v.1.0 on Ascend
+        if device_target == "Ascend"
+            select_word_np = select_word.asnumpy()
+            range_index = np.arange(0, self.batch_size)
+            select_word_merge = [[index, word]
+                for index, word in zip(range_index, select_word_np)]
+            word_index_2D = Tensor(select_word_merge, dtype=mstype.int32)
+            gather = P.GatherNd()
+            real_selected_word_ids = gather(word_index_2D, real_word_index)
+            #Tensor shape: (batch_size,)
+
+        # On GPU it behaves well but on Ascend it glitches in FP16 mode, and GPU (CUDA) has not supported mindspore.ops.Gather so far.
+        else if device_target == "GPU":
+            float_real_index = self.cast(real_index, mstype.float32)
+            result = self.reshape(self.onehot(
+                    word_index, self.vocab_size, self.on_value, self.off_value), (self.batch_size, self.vocab_size))
+
+            _real_index = self.cumsum(result*float_real_index, 1)[::, -1::]
+            real_index = self.cast(_real_index, mstype.int32)
+            real_selected_word_ids = self.reshape(
+                    real_index, (-1,))  # Tensor shape: (batch_size,)
+        else:
+            raise NotImplementedError('CPU and other backend types have not been supported yet')
+
         return real_selected_word_ids
+    
+    class last_token_pos(self):
+        def __init__(self,input_strs):
+            self.input_strs = input_strs
+            self.pos_list = [ len(input_str)-1 for input_str in self.input_strs]
+        def get_pos(shift:int = 0)
+            shift_list = [pos+shift for pos in self.pos_list]
+            return shift_list
+
 
     def generate(self, input_str=None, generate_length=None):
         """
@@ -421,6 +459,7 @@ class Sample():
             self.generate_length = generate_length
 
         return_ids_list = [[] for i in range(self.batch_size)]
+        last_token = self.last_token_pos(input_str)
 
         for i in range(self.generate_length):
             input_ids, input_mask, len_str = self._tensorize_ids_with_masks(
@@ -430,6 +469,16 @@ class Sample():
                 
                 
             logits = self.decoder.predict(input_ids, input_mask)
+
+            last_token_pos_list = last_token.get_pos(shift=i)
+
+            if self.return_last_token_logits is True:
+                if i == 0:
+                    #[batch_size,1,vocab_size]
+                    return_last_logits = extract_single_token_logits(logits,last_token_pos_list)
+                else:
+                    #[batch_size,1,vocab_size] + [batch_size,i,vocab_size] --> [batch_size,i+1,vocaab_size]
+                    return_last_logits = P.Concat(axis=1)(return_last_logits,extract_single_token_logits(logits,last_token_pos_list))
             
             nextword_distribution = self.reshape(
                     logits[0, len_str[0]-1:len_str[0]:1, ::], (1, -1))
@@ -444,22 +493,26 @@ class Sample():
                     nextword_distribution)
                 
             word_index = self.sample_function(distribution, 1)
+
+            
         
-            # sampled_next_word_index = self._gather_real_word(word_index,real_index) #Tensor(batch_size)
+            sampled_next_word_index = self._gather_real_word(word_index,real_index) #Tensor(batch_size)
 
-            float_real_index = self.cast(real_index, mstype.float32)
-            result = self.reshape(self.onehot(
-                    word_index, self.vocab_size, self.on_value, self.off_value), (self.batch_size, self.vocab_size))
+            # orginal GPU supported
+            # float_real_index = self.cast(real_index, mstype.float32)
+            # result = self.reshape(self.onehot(
+            #         word_index, self.vocab_size, self.on_value, self.off_value), (self.batch_size, self.vocab_size))
 
-            _real_index = self.cumsum(result*float_real_index, 1)[::, -1::]
-            real_index = self.cast(_real_index, mstype.int32)
-            sampled_next_word_index = self.reshape(
-                    real_index, (-1,))  # Tensor (batch_size,)
+            # _real_index = self.cumsum(result*float_real_index, 1)[::, -1::]
+            # real_index = self.cast(_real_index, mstype.int32)
+            # sampled_next_word_index = self.reshape(
+            #         real_index, (-1,))  # Tensor (batch_size,)
 
             # print("REAL_INDEX: ",sampled_next_word_index)
                 
             sampled_next_word_index_list = sampled_next_word_index.asnumpy().tolist()
 
+            #tokenizer.decode and early_stop
             for batch_idx in range(self.batch_size):
                 next_word_index = sampled_next_word_index_list[batch_idx]
                 # earlystop if the model generates a EOS token. For batch_size = 1 situation only.
@@ -484,6 +537,8 @@ class Sample():
                 return generate_str[0], full_str[0]
         else:
             if self.return_ids == True:
+                if self.return_last_token_logits == True:
+                    return return_ids_list,return_last_logits
                 return return_ids_list
             return generate_str, full_str
 
@@ -631,6 +686,7 @@ class Sample():
                 return generate_str[0], full_str[0]
         else:
             if self.return_ids == True:
+                
                 return return_ids_list
             return generate_str, full_str
 
