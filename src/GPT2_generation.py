@@ -127,6 +127,7 @@ class TopKTopP_Filter(nn.Cell):
         self.sample_function = P.Multinomial(seed=1)
         self.onehot = P.OneHot()
         self.cast = P.Cast()
+        self.device_target = get_context("device_target")
         self.mask = Tensor(
             np.zeros((batch_size, vocab_size)), dtype=mstype.float32)
         self.on_value = Tensor(1.0, mstype.float32)
@@ -138,6 +139,7 @@ class TopKTopP_Filter(nn.Cell):
             (batch_size, vocab_size-min_tokens_to_keep), dtype=float)
         self.safty_mask = Tensor(np.concatenate(
             (self.safty_mask_left, self.safty_mask_right), axis=1), dtype=mstype.float32)
+        self.device_target = get_context("device_target")
         assert self.temp > 0.0, 'temperature must be positive'
         assert self.k >= 0, 'the top_k number must be no negative.'
         if self.k > 0:
@@ -153,7 +155,11 @@ class TopKTopP_Filter(nn.Cell):
 
         # TOP K SAMPLE
         if self.k > 0:
-            last_value = values[::, -1::]
+            if self.device_target =="GPU":
+                last_value = values[::, -1::]
+            else:
+                last_value = values[::, -1]
+                last_value = self.expand_dims(last_value, 1) # replace values[::, -1::]
             binary_mask = distribution >= last_value
             mask = self.cast(binary_mask, mstype.float32)
             distribution = distribution * mask
@@ -391,10 +397,10 @@ class Sample():
     def _gather_real_word(self, select_word, real_word_index):
 
         # get device type ["GPU","CPU","Ascend",...]
-        device_target = get_device('device_target')
+        device_target = get_context('device_target')
 
         # mindspore.ops.Gather is supported in MindSpore v.1.0 on Ascend
-        if device_target == "Ascend"
+        if device_target == "Ascend":
             select_word_np = select_word.asnumpy()
             range_index = np.arange(0, self.batch_size)
             select_word_merge = [[index, word]
@@ -405,10 +411,10 @@ class Sample():
             #Tensor shape: (batch_size,)
 
         # On GPU it behaves well but on Ascend it glitches in FP16 mode, and GPU (CUDA) has not supported mindspore.ops.Gather so far.
-        else if device_target == "GPU":
-            float_real_index = self.cast(real_index, mstype.float32)
+        elif device_target == "GPU":
+            float_real_index = self.cast(real_word_index, mstype.float32)
             result = self.reshape(self.onehot(
-                    word_index, self.vocab_size, self.on_value, self.off_value), (self.batch_size, self.vocab_size))
+                    select_word, self.vocab_size, self.on_value, self.off_value), (self.batch_size, self.vocab_size))
 
             _real_index = self.cumsum(result*float_real_index, 1)[::, -1::]
             real_index = self.cast(_real_index, mstype.int32)
@@ -419,11 +425,11 @@ class Sample():
 
         return real_selected_word_ids
     
-    class last_token_pos(self):
+    class last_token_pos():
         def __init__(self,input_strs):
             self.input_strs = input_strs
             self.pos_list = [ len(input_str)-1 for input_str in self.input_strs]
-        def get_pos(shift:int = 0)
+        def get_pos(self,shift:int = 0):
             shift_list = [pos+shift for pos in self.pos_list]
             return shift_list
 
