@@ -508,10 +508,14 @@ class Sample():
             distribution, real_index = self.filter_distribution(
                     nextword_distribution)
     
-            word_index = self.sample_function(distribution, 1)
+            
             #reshape if Ascend
             if self.device_target == "Ascend":
+                word_index = self.sample_function(distribution, 1 , 1)
                 word_index = self.reshape(word_index,(-1,))
+            #GPU
+            else:
+                word_index = self.sample_function(distribution, 1)
         
             sampled_next_word_index = self._gather_real_word(word_index,real_index) #Tensor(batch_size,)
                 
