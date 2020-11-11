@@ -97,8 +97,71 @@ def eval_result_print(metric="Rouge", callback=None):
     else:
         raise ValueError("metric method '{}' not supported, support: [Rouge]. ".format(str(metric)))
 
+def filter_article(article,tokenizer):
+    raise NotImplementedError
 
-def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path=""):
+def modify_paramdict(param_dict,mode="zero-shot",model_prefix="gpt2."):
+    reorganized_param_dict = dict()
+    if mode == "zero-shot":        
+        for netName in param_dict:
+            reorganized_param_dict[model_prefix+netName] = param_dict[netName]
+        reorganized_param_dict['lm_head.weight'] = param_dict['gpt2_embedding_lookup.embedding_table']
+        return reorganized_param_dict
+    elif mode == "finetune":
+        embedding_name = "gpt2_embedding_lookup.embedding_table"
+        embedding_name_old = ""
+        for netName in param_dict:
+            netName_remove_prefix = netName[len(model_prefix):]
+            netName_prefix = netName[:len(model_prefix)]
+            reorganized_param_dict[netName_remove_prefix] = param_dict[netName]
+            if embedding_name in netName and netName_prefix == model_prefix:
+                embedding_name_old = netName
+        reorganized_param_dict[embedding_name] = param_dict[embedding_name_old]
+        return reorganized_param_dict
+
+        
+    else:
+         raise NotImplementedError
+        
+def remove_repetition(hypo,window_range = 3):
+    new_hypo = []
+    def check_window_repetition(lst):
+        prev = lst[0]
+        for x in lst:
+            if x is not prev:
+                return True
+            prev = x
+        return False
+
+    def remove_repetition_single(text):
+        if '\n' in text:
+            #remove '\n'
+            text = text.replace('\n',' ')
+        if '\xa0' in text:
+            #remove \xa0
+            text.replace('\xa0',' ')
+        text = ' '.join(text.split())
+
+        text_list = text.split()
+        len_text_list = len(text_list)
+
+        for start_pos in range(0,len_text_list-window_range):
+            new_window = text_list[start_pos:start_pos+window_range]
+            if check_window_repetition(new_window) is False:
+                text_list = text_list[:start_pos+1]
+                break
+
+        return ' '.join(text_list)
+
+    for sen in hypo:
+        new_sen = remove_repetition_single(sen)
+        if new_sen is '':
+            new_sen = '<empty>'
+        new_hypo.append(new_sen)
+    return new_hypo
+
+
+def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",eval_load_pram_mode="finetune",topk=2,topp=1.0,temperature=1.0):
     """
     Do evaluation on summarization
     Args:
@@ -112,26 +175,27 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path=""):
     if metric.lower() == "rouge":
         print("Prepare to calculate the Rouge score ...")
         callback = Rouge()
+        
+        #initialize network and load params
         gpt2_loss = network(config=gpt2_net_cfg,
                             is_training=False,
                             use_one_hot_embeddings=False)
-
         gpt2_loss.set_train(False)
         param_dict = load_checkpoint(load_checkpoint_path)
-        reorganized_param_dict = dict()
-        for netName in param_dict:
-            reorganized_param_dict['gpt2.'+netName] = param_dict[netName]
-        reorganized_param_dict['lm_head.weight'] = param_dict['gpt2_embedding_lookup.embedding_table']
+       
+        #get reorganized param_dict and load parms into network
+        reorganized_param_dict = modify_paramdict(param_dict,mode=eval_load_pram_mode,model_prefix="gpt2.")
         load_param_into_net(gpt2_loss, reorganized_param_dict)
 
-        # for item in gpt2_loss.get_parameters():
 
-        #     print('name: ',item.data.name)
-
+        #load nn.Cell into Model and initiate tokenizer and Sample
         model = Model(gpt2_loss)
         tokenizer = Tokenizer(vocab_file='./src/utils/pretrain-data/gpt2-vocab.json',
         merge_file='./src/utils/pretrain-data/gpt2-merges.txt')
-        sample = Sample(model,tokenizer=tokenizer,model_config=gpt2_net_cfg,topk_num = 1,topp_prob=0.92,min_tokens_to_keep=1,demo_mode=False)
+        sample = Sample(model,tokenizer=tokenizer,model_config=gpt2_net_cfg,topk_num = topk,topp_prob=topp,
+        min_tokens_to_keep=1,demo_mode=False,temperature=temperature)
+
+        #load data and process text generation
         columns_list = ["input_ids", "input_mask", "label_ids"]
         for data in dataset.create_dict_iterator():
             input_data = []
@@ -141,18 +205,17 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path=""):
 
             print("input_ids shape: {}".format(input_ids.shape))
             print("label_ids shape: {}".format(label_ids.shape))
-            print("============= Summrization Testing =============")
+            print("="*15," Summrization Testing ","="*15)
            
-            
-            #input_str,ref_str = sample.extract_string_from_tensor(input_ids,mode="pair") 
-            hypo,ref = sample.generate_for_CNN_DAILYMAIL(input_ids,generate_length=100,select_sentence=3,TL_DR=True)
+            hypo,ref = sample.generate_for_CNN_DAILYMAIL(input_ids,generate_length=100,select_sentence=3,TL_DR=True,tldr_str="TL;DR:")
+            hypo = remove_repetition(hypo)
             print("REF str:\n ",ref,"\nHYPO str:\n",hypo,"\n")
-            #print("LENGTH: ",len(ref[1]),"   and   ",len(hypo[1]),"\n")
             callback.update(ref, hypo)
-        print("==============================================")
+
+        print("="*35)
         eval_result_print(metric, callback)
-        print("==============================================")
-        print("************** Summarization Testing Finished **************")
+        print("="*35)
+        print("*"*15," Summrization Testing Finished","*"*15)
     
     else:
         raise ValueError("metric method not supported in summarization, support: [Rouge]")
@@ -163,19 +226,26 @@ def run_summarization():
     run Summarization_task
 
     '''
+
+    #set argument parser
     parser = argparse.ArgumentParser(description="Finetune and Evaluate Summrization")
+
+
+    #context and task settings
     parser.add_argument("--device_target", type=str, default="GPU",
                         help="Device type. Default: GPU.")
     parser.add_argument("--device_id", type=int, default=0,
                         help="ID of target device. ")
-    parser.add_argument("--metric_method", type=str, default="Rouge",
-                        help="The eval method including [Rouge(Rouge1,Rouge2,RougeL,Rouge Avg)]. Default: Rouge.") 
     parser.add_argument("--do_train", type=str, default="false",
                         help="Enable train. Default: false.")
     parser.add_argument("--do_eval", type=str, default="false",
                         help="Enable evaluation. Default: false.")
+    parser.add_argument("--metric_method", type=str, default="Rouge",
+                        help="The eval method including [Rouge(Rouge1,Rouge2,RougeL,Rouge Avg)]. Default: Rouge.") 
     parser.add_argument("--epoch_num", type=int, default=2,
                         help="Epoch number. Default: 2.")
+
+    #dataset and params_dict file settings
     parser.add_argument("--train_data_shuffle", type=str, default="true",
                         help="Enable train data shuffle. Default: true.")
     parser.add_argument("--eval_data_shuffle", type=str, default="false",
@@ -190,6 +260,19 @@ def run_summarization():
                         help="Data path, it is better to use absolute path")
     parser.add_argument("--eval_data_file_path", type=str, default="/datasets/cnn_dailymail",
                         help="Data path, it is better to use absolute path")
+    parser.add_argument("--eval_load_pram_mode", type=str, default="zero-shot",
+                        help="Mode for load param of evaluation, [zero-shot,finetune]")
+
+    # sample settings
+    parser.add_argument("--top_k", type=int, default=2,
+                        help="top k tokens chosen for sampling")
+    parser.add_argument("--top_p", type=float, default=1.0,
+                        help="top p accumulated probability thresold for logit to be counted")
+    parser.add_argument("--temp", type=float, default=1.0,
+                        help="temperature on logits for sampling")
+
+        
+    #get args
     args_opt = parser.parse_args()
 
     epoch_num = args_opt.epoch_num
@@ -197,6 +280,10 @@ def run_summarization():
     save_finetune_ckpt_path = args_opt.save_finetune_ckpt_path
     load_finetune_ckpt_path = args_opt.load_finetune_ckpt_path
     load_pretrain_ckpt_path = args_opt.load_pretrain_ckpt_path
+    eval_load_pram_mode = args_opt.eval_load_pram_mode
+    topk = args_opt.top_k
+    topp = args_opt.top_p
+    temperature = args_opt.temp
 
     if args_opt.do_train.lower() == "false" and args_opt.do_eval.lower() == "false":
         raise ValueError("At least one of 'do_train' or 'do_eval' must be true")
@@ -218,19 +305,21 @@ def run_summarization():
     
 
     if args_opt.do_train.lower() == "true":
+        train_data_file_path = args_opt.train_data_file_path
         gpt2_loss = GPT2Summarization(config=gpt2_net_cfg,
                          is_training=True,
                          use_one_hot_embeddings=False)
         print("============== Start Loading Train Dataset ==============")
         train_dataset = create_cnn_dailymail_dataset(
-            dataset_path="/datasets/cnn_dailymail/cnn_dailymail-train-mindrecord")
+            dataset_path=train_data_file_path)
         do_train(train_dataset, gpt2_loss, load_pretrain_ckpt_path, save_finetune_ckpt_path, epoch_num)
 
     if args_opt.do_eval.lower() == "true":
+        eval_dataset_file_path = args_opt.eval_data_file_path
         print("============ Start Loading Evaluation Dataset ============")
         eval_dataset = create_cnn_dailymail_dataset(
-            dataset_path="/datasets/cnn_dailymail/cnn_dailymail-test-mindrecord")
-        do_eval(eval_dataset, GPT2SummarizationModel, metric, load_finetune_ckpt_path)
+            dataset_path=eval_dataset_file_path)
+        do_eval(eval_dataset, GPT2SummarizationModel, metric, load_finetune_ckpt_path,eval_load_pram_mode,topk,topp,temperature)
 
 
 
