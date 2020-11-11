@@ -31,3 +31,16 @@ def get_rouge_score(hypothesis: List[str], target: List[str]):
     # with open(R_PATH, "w") as f:
     #     f.writelines(edited_ref)
     return scores
+<<<<<<< Updated upstream
+=======
+
+if __name__ == "__main__":
+    # s1 = [u'\xa0 Yes minister!']
+    # s2 = ["Yes minister!"]
+    s1 =   ['Father-of-two Paul Doyle moved family into £820,000 home in Altrincham .He bought it after seven-year jail term for cocaine and cannabis dealing .Admitted supplying  drugs,  money laundering and benefit fraud offences .Teenage son rode quad bikes and got Asbo for terrorising local children .']
+    s2 =  [" A former member of the family has been jailed for 16 years after being caught in the act of selling drugs to criminals in his home town of Altrincham, Cheshire. The father of two has been dubbed the 'father-of-two' because he has lived a life of luxury and is a member of a drug drug drug drug drug drug drug drug drug drug drug drug drug drug drug drug drug drug drug drug drug drug drug drug drug drug drug drug drug drug drug drug drug drug drug"]
+    s2_p = [" A former member of the family has been jailed for 16 years after being caught in the act of selling drugs to criminals in his home town of Altrincham, Cheshire. The father of two has been dubbed the 'father-of-two' because he has lived a life of luxury and is a member of a drug"]
+    print(s1,s2)
+    print("----")
+    print(get_rouge_score(s1,s2_p))
+>>>>>>> Stashed changes
