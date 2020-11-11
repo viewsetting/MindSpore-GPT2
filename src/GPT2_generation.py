@@ -140,6 +140,7 @@ class TopKTopP_Filter(nn.Cell):
         self.safty_mask = Tensor(np.concatenate(
             (self.safty_mask_left, self.safty_mask_right), axis=1), dtype=mstype.float32)
         self.device_target = get_context("device_target")
+        self.expand_dims = P.ExpandDims()
         assert self.temp > 0.0, 'temperature must be positive'
         assert self.k >= 0, 'the top_k number must be no negative.'
         if self.k > 0:
