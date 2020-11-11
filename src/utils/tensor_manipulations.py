@@ -2,7 +2,7 @@ from mindspore import Tensor
 from mindspore import dtype as mstype
 from mindspore.ops import operations as P
 from typing import TypeVar, Union
-from tokenization import Tokenizer
+from .tokenization import Tokenizer
 import numpy as np
 
 def extract_string_from_tensor(input_ids: Tensor, mode="single",config = None, tokenizer = None):
