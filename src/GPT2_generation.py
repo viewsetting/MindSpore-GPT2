@@ -116,14 +116,19 @@ class TopKTopP_Filter(nn.Cell):
         self.topK = P.TopK(sorted=True)
         self.batch_size = batch_size
         self.vocab_size = vocab_size
+        self.device_target = get_context("device_target")
         self.min_tokens_to_keep = min_tokens_to_keep
         self.k = k
         self.p = p
         self.temp = temperature
         self.cumsum = P.CumSum()
-        self.sample_function = P.Multinomial(seed=1)
+        
         self.onehot = P.OneHot()
         self.cast = P.Cast()
+<<<<<<< Updated upstream
+=======
+        
+>>>>>>> Stashed changes
         self.mask = Tensor(
             np.zeros((batch_size, vocab_size)), dtype=mstype.float32)
         self.on_value = Tensor(1.0, mstype.float32)
@@ -135,10 +140,22 @@ class TopKTopP_Filter(nn.Cell):
             (batch_size, vocab_size-min_tokens_to_keep), dtype=float)
         self.safty_mask = Tensor(np.concatenate(
             (self.safty_mask_left, self.safty_mask_right), axis=1), dtype=mstype.float32)
+<<<<<<< Updated upstream
         assert self.temp > 0.0,'temperature must be positive'
+=======
+        
+        assert self.temp > 0.0, 'temperature must be positive'
+>>>>>>> Stashed changes
         assert self.k >= 0, 'the top_k number must be no negative.'
         if self.k > 0:
             assert self.min_tokens_to_keep <= self.k, 'K must be larger than or equal to min_token_to_keep for top p sampling'
+
+        if self.device_target == "GPU":
+            self.sample_function = P.Multinomial(seed=1)
+        elif self.device_target == "Ascend":
+             self.sample_function = P.RandomCategorical(mindspore.int32)
+        else:
+            raise NotImplementedError('Device type {} not supported.'.format(self.device_target))
 
     def construct(self, distribution: Tensor):
         distribution = self.softmax(distribution)
