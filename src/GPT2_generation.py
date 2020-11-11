@@ -509,6 +509,7 @@ class Sample():
                     nextword_distribution)
     
             word_index = self.sample_function(distribution, 1)
+            #reshape if Ascend
             if self.device_target == "Ascend":
                 word_index = self.reshape(word_index,(-1,))
         
