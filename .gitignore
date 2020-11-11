@@ -15,6 +15,7 @@ create_*.sh
 test_*.py
 src/utils/multi-bleu.perl
 ./src/finetune_eval_config.py
+src/finetune_eval_config.py
 **/** 2.py
 **/** 2.sh
 **/** 2.perl
