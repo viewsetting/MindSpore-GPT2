@@ -147,13 +147,6 @@ class TopKTopP_Filter(nn.Cell):
         if self.k > 0:
             assert self.min_tokens_to_keep <= self.k, 'K must be larger than or equal to min_token_to_keep for top p sampling'
 
-        if self.device_target == "GPU":
-            self.sample_function = P.Multinomial(seed=1)
-        elif self.device_target == "Ascend":
-            self.sample_function = P.RandomCategorical(mindspore.int32)
-        else:
-            raise NotImplementedError("Device Target {} not supported.".format(self.device_target))
-
     def construct(self, distribution: Tensor):
         distribution = self.softmax(distribution)
         if self.temp != 1.0:
@@ -255,6 +248,14 @@ class Sample():
         self.demo_mode = demo_mode
         self.return_ids = return_ids
         self.return_last_token_logits = return_last_token_logits
+        self.device_target = get_context("device_target")
+
+        if self.device_target == "GPU":
+            self.sample_function = P.Multinomial(seed=1)
+        elif self.device_target == "Ascend":
+            self.sample_function = P.RandomCategorical(mindspore.int32)
+        else:
+            raise NotImplementedError("Device Target {} not supported.".format(self.device_target))
 
         self.filter_distribution = TopKTopP_Filter(
                     self.batch_size, self.vocab_size, k=self.topk_num, p=self.topp_prob,
@@ -406,10 +407,10 @@ class Sample():
     def _gather_real_word(self, select_word, real_word_index):
 
         # get device type ["GPU","CPU","Ascend",...]
-        device_target = get_context('device_target')
+        #device_target = get_context('device_target')
 
         # mindspore.ops.Gather is supported in MindSpore v.1.0 on Ascend
-        if device_target == "Ascend":
+        if self.device_target == "Ascend":
             select_word_np = select_word.asnumpy()
             range_index = np.arange(0, self.batch_size)
             select_word_merge = [[index, word]
@@ -420,7 +421,7 @@ class Sample():
             #Tensor shape: (batch_size,)
 
         # On GPU it behaves well but on Ascend it glitches in FP16 mode, and GPU (CUDA) has not supported mindspore.ops.Gather so far.
-        elif device_target == "GPU":
+        elif self.device_target == "GPU":
             float_real_index = self.cast(real_word_index, mstype.float32)
             result = self.reshape(self.onehot(
                     select_word, self.vocab_size, self.on_value, self.off_value), (self.batch_size, self.vocab_size))
@@ -506,24 +507,12 @@ class Sample():
 
             distribution, real_index = self.filter_distribution(
                     nextword_distribution)
-                
+    
             word_index = self.sample_function(distribution, 1)
-
-            
+            if self.device_target == "Ascend":
+                word_index = self.reshape(word_index,(-1,))
         
-            sampled_next_word_index = self._gather_real_word(word_index,real_index) #Tensor(batch_size)
-
-            # orginal GPU supported
-            # float_real_index = self.cast(real_index, mstype.float32)
-            # result = self.reshape(self.onehot(
-            #         word_index, self.vocab_size, self.on_value, self.off_value), (self.batch_size, self.vocab_size))
-
-            # _real_index = self.cumsum(result*float_real_index, 1)[::, -1::]
-            # real_index = self.cast(_real_index, mstype.int32)
-            # sampled_next_word_index = self.reshape(
-            #         real_index, (-1,))  # Tensor (batch_size,)
-
-            # print("REAL_INDEX: ",sampled_next_word_index)
+            sampled_next_word_index = self._gather_real_word(word_index,real_index) #Tensor(batch_size,)
                 
             sampled_next_word_index_list = sampled_next_word_index.asnumpy().tolist()
 
