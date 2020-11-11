@@ -406,18 +406,15 @@ class Sample():
 
     def _gather_real_word(self, select_word, real_word_index):
 
-        # get device type ["GPU","CPU","Ascend",...]
-        #device_target = get_context('device_target')
 
         # mindspore.ops.Gather is supported in MindSpore v.1.0 on Ascend
         if self.device_target == "Ascend":
             select_word_np = select_word.asnumpy()
             range_index = np.arange(0, self.batch_size)
-            select_word_merge = [[index, word]
-                for index, word in zip(range_index, select_word_np)]
+            select_word_merge = [[index, word] for index, word in zip(range_index, select_word_np)]
             word_index_2D = Tensor(select_word_merge, dtype=mstype.int32)
             gather = P.GatherNd()
-            real_selected_word_ids = gather(word_index_2D, real_word_index)
+            real_selected_word_ids = gather( real_word_index,word_index_2D)
             #Tensor shape: (batch_size,)
 
         # On GPU it behaves well but on Ascend it glitches in FP16 mode, and GPU (CUDA) has not supported mindspore.ops.Gather so far.
