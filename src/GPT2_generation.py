@@ -253,7 +253,7 @@ class Sample():
         if self.device_target == "GPU":
             self.sample_function = P.Multinomial(seed=1)
         elif self.device_target == "Ascend":
-            self.sample_function = P.RandomCategorical(mindspore.int32)
+            self.sample_function = P.RandomCategorical(mstype.int32)
         else:
             raise NotImplementedError("Device Target {} not supported.".format(self.device_target))
 
