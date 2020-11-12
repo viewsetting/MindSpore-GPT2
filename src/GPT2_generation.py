@@ -480,14 +480,16 @@ class Sample():
         
 
         if generate_length is not None:
+            #reload generate_length
             generate_length = int(generate_length)
             assert generate_length >= 0, 'generate_length can not be negative.'
-            self.generate_length = generate_length
+        else:
+            generate_length = self.generate_length
 
         return_ids_list = [[] for i in range(self.batch_size)]
         last_token = self.last_token_pos(input_str)
 
-        for i in range(self.generate_length):
+        for i in range(generate_length):
             input_ids, input_mask, len_str = self._tensorize_ids_with_masks(full_str)
             early_stop_mask = [0] * self.batch_size    
             
