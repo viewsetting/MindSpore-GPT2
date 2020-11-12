@@ -106,7 +106,7 @@ class TopKTopP_Filter(nn.Cell):
     Inputs:
         distribution(Tensor): with shape (batch_size,vocab_size)
     
-    Outputs:
+    Returns:
         distribution(Tensor): with shape(batch_size, vocab_size), masked logits
         sorted_indexes(Tensor or None): Tensor with shape(batch_size,vocab_size) or None if do no sampling
 
