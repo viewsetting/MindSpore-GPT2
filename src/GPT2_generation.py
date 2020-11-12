@@ -431,6 +431,24 @@ class Sample():
             return shift_list
 
 
+    def _sample_from_distribution(self,distribution):
+        # reshape if Ascend
+        if self.device_target == "Ascend":
+            distribution = self.reshape(distribution, (self.vocab_size, self.batch_size))
+            topk_distribution = distribution[:self.topk_num, ::]
+            topk_distribution = self.reshape(topk_distribution, (self.batch_size, -1))
+            word_index = self.sample_function(topk_distribution, 1 , 1)
+            word_index = self.reshape(word_index,(-1,))
+            
+            # GPU
+        elif self.device_target == "GPU":
+            word_index = self.sample_function(distribution,1)
+
+        else:
+            raise ValueError("Device type {} not supported yet.".format(self.device_target))
+
+        return word_index
+
     def generate(self, input_str=None, generate_length=None):
         """
         base function for text generation
@@ -446,9 +464,7 @@ class Sample():
         if input_str is not None:
             assert self.tokenizer is not None, 'if choose to give input_str, a tokenizer is necessary.'
         generate_str = [""] * self.batch_size
-
-        
-        
+                
         
         if self.batch_size == 1 and self.demo_mode:
             # type check
@@ -474,8 +490,10 @@ class Sample():
         for i in range(self.generate_length):
             input_ids, input_mask, len_str = self._tensorize_ids_with_masks(full_str)
             early_stop_mask = [0] * self.batch_size    
-                
+            
+            #raw, unsorted logits(distribution) of next word
             logits = self.decoder.predict(input_ids, input_mask)
+            #get index of last_token in iteration i for different batch may have different length 
             last_token_pos_list = last_token.get_pos(shift=i)
 
             if self.return_last_token_logits is True:
@@ -489,33 +507,27 @@ class Sample():
             
             nextword_distribution = self.reshape(logits[0, len_str[0]-1:len_str[0]:1, ::], (1, -1))
 
+            # stack up nextword_distribution if batch_size is larger than 1
             if self.batch_size > 1:
                 for batch_idx in range(1, self.batch_size):
                         nextword_distribution_rest = self.reshape(
                             logits[batch_idx, len_str[batch_idx]-1:len_str[batch_idx]:1, ::], (1, -1))
                         nextword_distribution = self.concat((nextword_distribution, nextword_distribution_rest))
 
-            distribution, real_index = self.filter_distribution(nextword_distribution)
+            #get filtered and sorted distribution with sorted real index for restore real next word index afterwhile
+            sorted_distribution, real_index = self.filter_distribution(nextword_distribution)
             
-            # reshape if Ascend
-            if self.device_target == "Ascend":
-                distribution = self.reshape(distribution, (self.vocab_size, self.batch_size))
-                topk_distribution = distribution[:self.topk_num, ::]
-                topk_distribution = self.reshape(topk_distribution, (self.batch_size, -1))
-                word_index = self.sample_function(topk_distribution, 1 , 1)
-                word_index = self.reshape(word_index,(-1,))
-            
-            # GPU
-            else:
-                word_index = self.sample_function(distribution, 1)
-        
-            sampled_next_word_index = self._get_real_word(word_index,real_index) # Tensor (batch_size,)
-            sampled_next_word_index_list = sampled_next_word_index.asnumpy().tolist()
+            #get sampled index of sorted logits(distribution)
+            word_index = self._sample_from_distribution(sorted_distribution)
 
-            # tokenizer.decode and early_stop
+            #restore real next word index in unsorted, raw logits and convert it to list
+            real_next_word_index = self._get_real_word(word_index,real_index) # Tensor (batch_size,)
+            real_next_word_index_list = real_next_word_index.asnumpy().tolist()
+
+            # tokenizer.decode and early_stop (if all batched generates a EOS, then it is time to say goodbye)
             for batch_idx in range(self.batch_size):
-                next_word_index = sampled_next_word_index_list[batch_idx]
-                # earlystop if the model generates a EOS token. For batch_size = 1 situation only.
+                next_word_index = real_next_word_index_list[batch_idx]
+                # earlystop if the model generates a EOS token.
                 if next_word_index == self.eos_id and self.early_stop is True and self.batch_size == 1:
                     break
                 if next_word_index == self.eos_id and self.early_stop is True:
@@ -527,10 +539,12 @@ class Sample():
                 return_ids_list[batch_idx].append(next_word_index)
                 full_str[batch_idx] += next_word_str
                 generate_str[batch_idx] += next_word_str
-
+            
+            # check early_stop mask at the end of each loop
             if 0 not in early_stop_mask:
                 break
-
+        
+        #returns by several conditions
         if self.batch_size == 1 and self.demo_mode is True:
             if self.return_ids == True:
                 return generate_str[0], full_str[0],return_ids_list[0]
