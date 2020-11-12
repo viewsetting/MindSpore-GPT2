@@ -333,7 +333,7 @@ class Sample():
                 return source_list
         
         else:
-            assert True != True, ('mode:{} not supported.'.format(mode))
+            raise ValueError('mode:{} not supported.'.format(mode))
 
     def _tensorize_ids_with_masks(self, src_str):
         """
@@ -447,10 +447,17 @@ class Sample():
             assert self.tokenizer is not None, 'if choose to give input_str, a tokenizer is necessary.'
         generate_str = [""] * self.batch_size
 
-        # type check
-        full_str = None
+        
+        
         
         if self.batch_size == 1 and self.demo_mode:
+            # type check
+            if type(input_str) is list:
+                assert type(input_str[0]) is str,"type of input_str is {}, which should be str instead.".format(type(input_str[0]))
+                if len(input_str) != 1:
+                    print("[WARNING] Sample.generate: length of input_str is larger than 1, choose input_str[0] as input_str.")
+                input_str = input_str[0]
+            assert type(input_str) is str,"type of input_str is {}, which should be str instead.".format(type(input_str))
             full_str = [input_str]
         else:
             full_str = input_str
