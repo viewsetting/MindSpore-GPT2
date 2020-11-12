@@ -408,25 +408,24 @@ class Sample():
 
 
         # mindspore.ops.Gather is supported in MindSpore v.1.0 on Ascend
-        if self.device_target == "Ascend":
+        if self.device_target == "Ascend" or self.device_target == "GPU":
             select_word_np = select_word.asnumpy()
             range_index = np.arange(0, self.batch_size)
-            select_word_merge = [[index, word] for index, word in zip(range_index, select_word_np)]
+            select_word_merge = np.array([[index, word] for index, word in zip(range_index, select_word_np)])
             word_index_2D = Tensor(select_word_merge, dtype=mstype.int32)
-            gather = P.GatherNd()
-            real_selected_word_ids = gather( real_word_index,word_index_2D)
+            real_selected_word_ids = P.GatherNd()( real_word_index,word_index_2D)
             #Tensor shape: (batch_size,)
 
         # On GPU it behaves well but on Ascend it glitches in FP16 mode, and GPU (CUDA) has not supported mindspore.ops.Gather so far.
-        elif self.device_target == "GPU":
-            float_real_index = self.cast(real_word_index, mstype.float32)
-            result = self.reshape(self.onehot(
-                    select_word, self.vocab_size, self.on_value, self.off_value), (self.batch_size, self.vocab_size))
+        # elif self.device_target == "GPU":
+        #     float_real_index = self.cast(real_word_index, mstype.float32)
+        #     result = self.reshape(self.onehot(
+        #             select_word, self.vocab_size, self.on_value, self.off_value), (self.batch_size, self.vocab_size))
 
-            _real_index = self.cumsum(result*float_real_index, 1)[::, -1::]
-            real_index = self.cast(_real_index, mstype.int32)
-            real_selected_word_ids = self.reshape(
-                    real_index, (-1,))  # Tensor shape: (batch_size,)
+        #     _real_index = self.cumsum(result*float_real_index, 1)[::, -1::]
+        #     real_index = self.cast(_real_index, mstype.int32)
+        #     real_selected_word_ids = self.reshape(
+        #             real_index, (-1,))  # Tensor shape: (batch_size,)
         else:
             raise NotImplementedError('CPU and other backend types have not been supported yet')
 
