@@ -211,7 +211,7 @@ class Sample():
     def __init__(self, decoder, model_config=None, generate_length=1, tokenizer=None,  
         input_ids=None, input_mask=None,  
         topk_num=0, topp_prob=1.0, temperature=1.0, min_tokens_to_keep=1, early_stop=False, 
-        demo_mode=False, return_ids=False,return_last_token_logits=False):
+        demo_mode=False, return_ids=False,return_last_token_logits=False,append_eos=False):
 
         # several checks for string mode or input tensors a.k.a. Tensor mode
         assert model_config is not None, 'Config is a must for sampling.'
@@ -248,6 +248,7 @@ class Sample():
         self.demo_mode = demo_mode
         self.return_ids = return_ids
         self.return_last_token_logits = return_last_token_logits
+        self.append_eos = append_eos
         self.device_target = get_context("device_target")
 
         if self.device_target == "GPU":
@@ -384,6 +385,11 @@ class Sample():
                 src_list = src_list[:self.seq_length]
                 src_len = self.seq_length
 
+            #append_eos
+            if self.append_eos is True:
+                src_len += 1
+                src_list.append(tokenizer.eos_token_id)
+
             src_len_list.append(src_len)
             ret_dict = self.tokenizer.prepare_for_model(
             src_list, max_length=self.model_config.seq_length, add_special_tokens=False)
@@ -507,7 +513,10 @@ class Sample():
             
             #reshape if Ascend
             if self.device_target == "Ascend":
-                word_index = self.sample_function(distribution, 1 , 1)
+                distribution = self.reshape(distribution, (self.vocab_size, self.batch_size))
+                topk_distribution = distribution[:self.topk_num, ::]
+                topk_distribution = self.reshape(topk_distribution, (self.batch_size, -1))
+                word_index = self.sample_function(topk_distribution, 1 , 1)
                 word_index = self.reshape(word_index,(-1,))
             #GPU
             else:
