@@ -161,7 +161,7 @@ def remove_repetition(hypo,window_range = 3):
     return new_hypo
 
 
-def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",eval_load_pram_mode="finetune",topk=2,topp=1.0,temperature=1.0):
+def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",eval_load_pram_mode="finetune",topk=2,topp=1.0,temperature=1.0,append_eos=False):
     """
     Do evaluation on summarization
     Args:
@@ -270,6 +270,8 @@ def run_summarization():
                         help="top p accumulated probability thresold for logit to be counted")
     parser.add_argument("--temp", type=float, default=1.0,
                         help="temperature on logits for sampling")
+    parser.add_argument("--append_eos", type=bool, default=False,
+                        help="if append <EOS> token to the end of input str")
 
         
     #get args
@@ -284,6 +286,7 @@ def run_summarization():
     topk = args_opt.top_k
     topp = args_opt.top_p
     temperature = args_opt.temp
+    append_eos = args_opt.append_eos
 
     if args_opt.do_train.lower() == "false" and args_opt.do_eval.lower() == "false":
         raise ValueError("At least one of 'do_train' or 'do_eval' must be true")
@@ -319,7 +322,7 @@ def run_summarization():
         print("============ Start Loading Evaluation Dataset ============")
         eval_dataset = create_cnn_dailymail_dataset(
             dataset_path=eval_dataset_file_path)
-        do_eval(eval_dataset, GPT2SummarizationModel, metric, load_finetune_ckpt_path,eval_load_pram_mode,topk,topp,temperature)
+        do_eval(eval_dataset, GPT2SummarizationModel, metric, load_finetune_ckpt_path,eval_load_pram_mode,topk,topp,temperature,append_eos)
 
 
 
