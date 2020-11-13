@@ -193,7 +193,7 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",eva
         tokenizer = Tokenizer(vocab_file='./src/utils/pretrain-data/gpt2-vocab.json',
         merge_file='./src/utils/pretrain-data/gpt2-merges.txt')
         sample = Sample(model,tokenizer=tokenizer,model_config=gpt2_net_cfg,topk_num = topk,topp_prob=topp,
-        min_tokens_to_keep=1,demo_mode=False,temperature=temperature)
+        min_tokens_to_keep=1,demo_mode=False,temperature=temperature,append_eos=append_eos)
 
         #load data and process text generation
         columns_list = ["input_ids", "input_mask", "label_ids"]
