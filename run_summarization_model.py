@@ -161,7 +161,7 @@ def remove_repetition(hypo,window_range = 3):
     return new_hypo
 
 
-def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",eval_load_pram_mode="finetune",topk=2,topp=1.0,temperature=1.0,append_eos=False):
+def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",eval_load_param_mode="finetune",topk=2,topp=1.0,temperature=1.0,append_eos=False):
     """
     Do evaluation on summarization
     Args:
@@ -184,7 +184,7 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",eva
         param_dict = load_checkpoint(load_checkpoint_path)
        
         #get reorganized param_dict and load parms into network
-        reorganized_param_dict = modify_paramdict(param_dict,mode=eval_load_pram_mode,model_prefix="gpt2.")
+        reorganized_param_dict = modify_paramdict(param_dict,mode=eval_load_param_mode,model_prefix="gpt2.")
         load_param_into_net(gpt2_loss, reorganized_param_dict)
 
 
@@ -260,7 +260,7 @@ def run_summarization():
                         help="Data path, it is better to use absolute path")
     parser.add_argument("--eval_data_file_path", type=str, default="/datasets/cnn_dailymail",
                         help="Data path, it is better to use absolute path")
-    parser.add_argument("--eval_load_pram_mode", type=str, default="zero-shot",
+    parser.add_argument("--eval_load_param_mode", type=str, default="zero-shot",
                         help="Mode for load param of evaluation, [zero-shot,finetune]")
 
     # sample settings
@@ -282,7 +282,7 @@ def run_summarization():
     save_finetune_ckpt_path = args_opt.save_finetune_ckpt_path
     load_finetune_ckpt_path = args_opt.load_finetune_ckpt_path
     load_pretrain_ckpt_path = args_opt.load_pretrain_ckpt_path
-    eval_load_pram_mode = args_opt.eval_load_pram_mode
+    eval_load_param_mode = args_opt.eval_load_param_mode
     topk = args_opt.top_k
     topp = args_opt.top_p
     temperature = args_opt.temp
@@ -322,7 +322,7 @@ def run_summarization():
         print("============ Start Loading Evaluation Dataset ============")
         eval_dataset = create_cnn_dailymail_dataset(
             dataset_path=eval_dataset_file_path)
-        do_eval(eval_dataset, GPT2SummarizationModel, metric, load_finetune_ckpt_path,eval_load_pram_mode,topk,topp,temperature,append_eos)
+        do_eval(eval_dataset, GPT2SummarizationModel, metric, load_finetune_ckpt_path,eval_load_param_mode,topk,topp,temperature,append_eos)
 
 
 
