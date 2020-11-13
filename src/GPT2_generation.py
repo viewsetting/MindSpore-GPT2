@@ -335,7 +335,7 @@ class Sample():
         else:
             raise ValueError('mode:{} not supported.'.format(mode))
 
-    def _tensorize_ids_with_masks(self, src_str):
+    def _tensorize_ids_with_masks(self, src_str,append_eos_flag=False):
         """
         Transform from string to tensor
 
@@ -362,10 +362,13 @@ class Sample():
                 src_list = src_list[:self.seq_length]
                 src_len = self.seq_length
 
-            #append_eos
-            if self.append_eos is True:
-                src_len += 1
-                src_list.append(tokenizer.eos_token_id)
+            #append_eos deprecated now.
+            # if append_eos_flag is True:
+            #     if src_len<self.seq_length:
+            #         src_len += 1
+            #         src_list.append(self.tokenizer.eos_token_id)
+            #     else:
+            #         src_list[self.seq_length-1] = self.tokenizer.eos_token_id
 
             src_len_list.append(src_len)
             ret_dict = self.tokenizer.prepare_for_model(src_list,
@@ -490,6 +493,8 @@ class Sample():
         last_token = self.last_token_pos(input_str)
 
         for i in range(generate_length):
+            #only first input_ids
+            
             input_ids, input_mask, len_str = self._tensorize_ids_with_masks(full_str)
             early_stop_mask = [0] * self.batch_size    
             
