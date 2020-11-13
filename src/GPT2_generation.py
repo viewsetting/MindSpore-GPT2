@@ -229,7 +229,7 @@ class Sample():
         self.topp_prob = topp_prob
         self.temperature = temperature
         self.min_tokens_to_keep = min_tokens_to_keep
-        self.input_ids = input_ids
+        
         self.decoder = decoder
         self.tokenizer = tokenizer
         self.reshape = P.Reshape()
