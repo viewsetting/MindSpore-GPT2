@@ -451,7 +451,8 @@ class Sample():
                 self.pos_list = [ len(input_str)-1 for input_str in self.input_strs]
             else:
                 #Tensor (batch_size,seq_length) --> list ,len(list) = batch_size
-                temp_pos_list = P.ReduceSum(keep_dim=False)(self.input_mask,axis=1).asnumpy().tolist()
+                input_mask_ = P.Cast()(self.input_mask,mstype.float32)
+                temp_pos_list = P.ReduceSum(keep_dims=False)(input_mask_,axis=1).asnumpy().astype(np.int32).tolist()
                 #minimum value is always 0 for safety 
                 self.pos_list = [max(0,pos-1) for pos in temp_pos_list]
         
@@ -508,7 +509,7 @@ class Sample():
         last_token_pos_list = last_token_pos_recorder.get_pos(shift=0)
         return_last_logits = extract_single_token_logits(logits, last_token_pos_list) #(batch_size,1,vocab_size)
         return_last_logits = self.reshape(return_last_logits,(self.batch_size,self.vocab_size)) #(batch_size,vocab_size)
-        return_last_logits = P.SoftMax()(return_last_logits)
+        return_last_logits = P.Softmax()(return_last_logits)
         topk_logits,topk_indices = P.TopK(sorted=True)(return_last_logits,beam_size) #(batch_size,beam_size)
         return topk_indices,topk_logits
 
@@ -898,12 +899,38 @@ class BeamSearch(Sample):
                 model_config,
                 tokenizer,
                 beam_size=1):
-        super(BeamSearch,self).__init__(decoder=decoder,model_config=model_config,generate_length=1,tokenizer=tokenizer)
+        #super(BeamSearch,self).__init__(decoder=decoder,model_config=model_config,generate_length=1,tokenizer=tokenizer)
         self.decoder=decoder
         self.model_config=model_config
         self.tokenizer=tokenizer
         self.beam_size = beam_size
         self.eos_token_id = self.tokenizer.eos_token_id
+        self.vocab_size = model_config.vocab_size
+        self.batch_size =model_config.batch_size
+        self.seq_length =model_config.seq_length
+    
+    def generate_one_step(self,input_ids:Tensor,input_mask:Tensor,beam_size=1):
+        """
+        generate next token for only one step, use softmax to regularize logits
+
+        Arg:
+            input_ids (Tensor): (batch_size,seq_length) ids of input text
+            input_mask (Tensor): (batch_size,seq_length) mask of input text, 0 for mask, 1 for reserved
+            beam_size (int): int, beam_size for each candidate text
+        
+        Return:
+            topk_indices (Tensor): (batch_size,beam_size), topk (k = beam_size) num of the next token indices for each batch 
+            topk_logits (Tensor): (batch_size,beam_size), topk (k = beam_size) num of the next token logits(distribution) for each batch 
+        """
+        logits = self.decoder.predict(input_ids, input_mask)
+        last_token_pos_recorder = LastTokenPos(input_mask)
+        last_token_pos_list = last_token_pos_recorder.get_pos(shift=0)
+        return_last_logits = extract_single_token_logits(logits, last_token_pos_list) #(batch_size,1,vocab_size)
+        return_last_logits = P.Reshape()(return_last_logits,(self.batch_size,self.vocab_size)) #(batch_size,vocab_size)
+        return_last_logits = P.Softmax()(return_last_logits)
+        topk_logits,topk_indices = P.TopK(sorted=True)(return_last_logits,beam_size) #(batch_size,beam_size)
+        return topk_indices,topk_logits
+
 
     
                    
@@ -923,7 +950,7 @@ class BeamSearch(Sample):
         if input_str is None:
             assert input_ids is not None and input_mask is not None,"if input_str is None, input_ids and input_mask both required."
         if input_str is not None:
-            self.input_ids,self.input_mask,self.input_str_len_list = tensorize_ids_with_masks(input_str,tokenizer=self.tokenizer)
+            self.input_ids,self.input_mask,self.input_str_len_list = tensorize_ids_with_masks(input_str,config=self.model_config ,tokenizer=self.tokenizer)
         else:
             self.input_ids = input_ids
             self.input_mask = input_mask
@@ -933,7 +960,9 @@ class BeamSearch(Sample):
                                 beam_size = self.beam_size,
                                 input_ids=self.input_ids,
                                 input_mask=self.input_mask,
-                                past_ids_len=self.input_str_len_list)
+                                past_ids_len=self.input_str_len_list,
+                                generate_one_step=self.generate_one_step
+                                )
         #generate for length-1 for 1 token is prepared directly
         for time_step in range(generate_length-1):
             ranker.beam_generate(self.beam_size)
@@ -944,7 +973,7 @@ class BeamSearch(Sample):
             beam_index = max_beam_index[batch_idx]
             max_beams.append(ranker.past_ids[batch_idx][beam_index].tolist())
         
-        max_beams_str = [self.tokenizer.decode(ids) for ids in max_beams]
+        max_beams_str = [self.tokenizer.decode(ids[:original_len+generate_length]) for ids,original_len in zip(max_beams,self.input_str_len_list)]
         return max_beams_str,max_beams
             
     class penalty():
@@ -958,12 +987,12 @@ class BeamSearch(Sample):
             beam_size (int): beam size
             input_ids (Tensor)
         """
-        def __init__(self,batch_size:int,beam_size:int,input_ids:Tensor,input_mask:Tensor,past_ids_len:list):
+        def __init__(self,batch_size:int,beam_size:int,input_ids:Tensor,input_mask:Tensor,past_ids_len:list,generate_one_step):
             self.batch_size = batch_size
             self.beam_size = beam_size
-            self.gen_scores = np.zeros((self.batch_size,self.beam_size,self.beam_size).astype(np.float32))
-            self.prev_scores = np.zeros((self.batch_size,self.beam_size).astype(np.float32))
-            self.gen_ids = np.zeros((self.batch_size,self.beam_size,self.beam_size).astype(np.int32))
+            self.gen_scores = np.zeros((self.batch_size,self.beam_size,self.beam_size)).astype(np.float32)
+            self.prev_scores = np.zeros((self.batch_size,self.beam_size)).astype(np.float32)
+            self.gen_ids = np.zeros((self.batch_size,self.beam_size,self.beam_size)).astype(np.int32)
             self.step = 0
             self.input_ids = input_ids
             self.input_ids_np = self.input_ids.asnumpy()
@@ -975,13 +1004,14 @@ class BeamSearch(Sample):
             #past_ids (List): (batch_size,beam_size), each element containing input_ids of a batch(seq_length,)
             self.past_ids = [ [ self.input_ids_np[batch_idx] for _ in range(self.beam_size)] for batch_idx in range(self.batch_size)]
             self.past_ids_len = [[past_ids_len[batch_idx] for _ in range(self.beam_size)] for batch_idx in range(self.batch_size)]
+            self.generate_one_step = generate_one_step
             self.prepare_for_rank()
 
         def prepare_for_rank(self):
             topk_indices,topk_logits = self.generate_one_step(self.input_ids,self.input_mask,beam_size=self.beam_size)
             #update prev_scores directly from topk_logits
             self.prev_scores = self.score_func(topk_logits.asnumpy(),mode="log")
-            topk_indices_np = topk_indice.asnumpy()
+            topk_indices_np = topk_indices.asnumpy()
             for batch_idx in range(self.batch_size):
                 for beam_idx in range(self.beam_size):
                     if self.past_ids_len[batch_idx][beam_idx] < self.maximum_length:
@@ -1040,10 +1070,11 @@ class BeamSearch(Sample):
             # [0.7,0.8,0.6]] 
             # --flatten--> [0.0,0.1,0.2,0.5,0.4,0.3,0.7,0.8,0.6] --argsort--> [0,1,2,5,4,3,7,8,6] 
             # --choose top k = beam_size --> [7,9,6] -- return_list --> [(2,1),(2,2),(2,0)]
-            for idx in range(self.batch_size*self.batch_size):
-                if argsort[idx]>=self.batch_size*(self.beam_size-1):
-                    parent_beam = int(idx)/int(self.batch_size)
-                    rank_id = int(idx)%int(self.batch_size)
+            print("[DEBUG] get_2D_topk_index",score_,argsort)
+            for idx in range(self.beam_size*self.beam_size):
+                if argsort[idx]>=self.beam_size*(self.beam_size-1):
+                    parent_beam = int(idx)//int(self.beam_size)
+                    rank_id = int(idx)%int(self.beam_size)
                     return_list.append((parent_beam,rank_id))
             return return_list
 
@@ -1058,6 +1089,10 @@ class BeamSearch(Sample):
                 for rank_idx in range(self.beam_size):
                     parent_index = candidates_index[batch_idx][rank_idx][0]
                     rank_index = candidates_index[batch_idx][rank_idx][1]
+                    print("[DEBUG] update_prev_score",parent_index,rank_index)
+                    print(self.prev_scores)
+                    print(self.gen_scores)
+                    print(candidates_index)
                     #maintaining prev_index to update past_ids
                     prev_text_index.append(parent_index)
                     #update prev_score
@@ -1097,8 +1132,8 @@ class BeamSearch(Sample):
             for batch_idx in range(self.batch_size):
                 past_id = []
                 for beam_idx in range(self.beam_size):
-                    parent_index = candidates_index[batch_idx][rank_idx][0]
-                    rank_index = candidates_index[batch_idx][rank_idx][1]
+                    parent_index = candidates_index[batch_idx][beam_idx][0]
+                    rank_index = candidates_index[batch_idx][beam_idx][1]
                     next_token_id = self.gen_ids[batch_idx][parent_index][rank_index]
                     if self.past_ids_len[batch_idx][beam_idx] > self.maximum_length:
                         #if overflow, shift to left for 1 token
@@ -1151,8 +1186,29 @@ class BeamSearch(Sample):
             #update input_mask
             self.input_mask = add_last_token_mask(input_mask=self.input_mask,overflow_strategy="shift")
             
-            
+class LastTokenPos():
+        """
+        class for record input_strs and the position of their last tokens 
+
+        Args:
+            input_ (Union): list if input is a list containing strs, Tensor with shape (batch_size,seq_length) representing input_mask
+        """
+        def __init__(self, input_:Union[list,Tensor]):
+            self.input_strs = input_ if type(input_) is str else None
+            self.input_mask = input_ if type(input_) is not str else None
+            if self.input_strs is not None:
+                self.pos_list = [ len(input_str)-1 for input_str in self.input_strs]
+            else:
+                #Tensor (batch_size,seq_length) --> list ,len(list) = batch_size
+                input_mask_ = P.Cast()(self.input_mask,mstype.float32)
+                temp_pos_list = P.ReduceSum(keep_dims=False)(input_mask_,axis=1).asnumpy().astype(np.int32).tolist()
+                #minimum value is always 0 for safety 
+                self.pos_list = [max(0,pos-1) for pos in temp_pos_list]
         
+        def get_pos(self, shift:int = 0):
+            shift_list = [pos+shift for pos in self.pos_list]
+            return shift_list
+     
         
 
 if __name__ == '__main__':
