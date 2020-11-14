@@ -95,7 +95,7 @@ def extract_string_from_tensor(input_ids: Tensor, mode="single",config = None, t
 
 
 
-def tensorize_ids_with_masks(src_str,config=None,tokenizer=None,append_eos=False):
+def tensorize_ids_with_masks(src_str,config=None,tokenizer=None,add_special_tokens=False,append_eos=False):
         """
         Transform from string to tensor
 
@@ -141,7 +141,7 @@ def tensorize_ids_with_masks(src_str,config=None,tokenizer=None,append_eos=False
 
             src_len_list.append(src_len)
             ret_dict = tokenizer.prepare_for_model(
-            src_list, max_length=config.seq_length, add_special_tokens=False)
+            src_list, max_length=config.seq_length, add_special_tokens=add_special_tokens)
 
             input_ids_list = ret_dict['input_ids']
             input_mask_list = ret_dict['attention_mask']
