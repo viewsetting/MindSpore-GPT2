@@ -1070,7 +1070,7 @@ class BeamSearch(Sample):
             # [0.7,0.8,0.6]] 
             # --flatten--> [0.0,0.1,0.2,0.5,0.4,0.3,0.7,0.8,0.6] --argsort--> [0,1,2,5,4,3,7,8,6] 
             # --choose top k = beam_size --> [7,9,6] -- return_list --> [(2,1),(2,2),(2,0)]
-            print("[DEBUG] get_2D_topk_index",score_,argsort)
+            #print("[DEBUG] get_2D_topk_index",score_,argsort)
             for idx in range(self.beam_size*self.beam_size):
                 if argsort[idx]>=self.beam_size*(self.beam_size-1):
                     parent_beam = int(idx)//int(self.beam_size)
@@ -1089,10 +1089,14 @@ class BeamSearch(Sample):
                 for rank_idx in range(self.beam_size):
                     parent_index = candidates_index[batch_idx][rank_idx][0]
                     rank_index = candidates_index[batch_idx][rank_idx][1]
-                    print("[DEBUG] update_prev_score",parent_index,rank_index)
-                    print(self.prev_scores)
-                    print(self.gen_scores)
-                    print(candidates_index)
+                    
+                    # for debug:
+                    #
+                    # print("[DEBUG] update_prev_score",parent_index,rank_index)
+                    # print(self.prev_scores)
+                    # print(self.gen_scores)
+                    # print(candidates_index)
+
                     #maintaining prev_index to update past_ids
                     prev_text_index.append(parent_index)
                     #update prev_score
