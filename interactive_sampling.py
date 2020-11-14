@@ -8,7 +8,7 @@ from src.utils.tokenization import Tokenizer
 from mindspore.ops import operations as P
 from src.GPT2ForSummarization import GPT2SummarizationModel
 from src.GPT2ForLanguageModel import GPT2LanguageModel
-from src.GPT2_generation import Sample
+from src.GPT2_generation import Sample,BeamSearch
 import mindspore.nn as nn
 from mindspore import context,Tensor, Model, Parameter
 from mindspore import dtype as mstype
@@ -79,7 +79,7 @@ if __name__ == '__main__':
     print('We are now in testing mode for GPT2 Interactive Generation Demo')
     print('*'*65)
     print('Set Running Env and Load Model')
-    gpt2, config = set_env(mode="GPU",device_id=3)
+    gpt2, config = set_env(mode="GPU",device_id=2)
     generate_length = 50
 
     tokenizer = Tokenizer(vocab_file='./src/utils/pretrain-data/gpt2-vocab.json',
@@ -87,6 +87,7 @@ if __name__ == '__main__':
 
     sample = Sample(gpt2, generate_length=generate_length, tokenizer=tokenizer,
                     model_config=config, topk_num=0, topp_prob=0.9, min_tokens_to_keep=1,demo_mode=True)
+    beam_search = BeamSearch(decoder = gpt2,model_config=config,tokenizer=tokenizer,beam_size=3)
 
     official_unicorn_demo = "In a shocking finding, scientist discovered a herd of unicorns living in a remote, previously unexplored valley, in the Andes Mountains. Even more surprising to the researchers was the fact that the unicorns spoke perfect English."
 
@@ -95,7 +96,7 @@ if __name__ == '__main__':
     """
 
     """
-["Sunderland are trailing former Wigan striker Franco di Santo. The Argentine is playing for Werder Bremen and has scored 13 goals in 22 games this season. The Bundesliga side want £8million for the 26-year-old who Sunderland sporting director Lee Congerton knows well from his time at Chelsea. Sunderland are considering a summer move for in-form Werder Bremen forward Franco Di Santo . The Argentine has been in superb form for his club this season, netting 13 goals in 22 games . Di Santo began his senior career with Chilean side Audax Italiano in 2006, before catching the Blues' eye two years later. However, he failed to make an impact at Stamford Bridge and following a similarly ineffectual loan spell at Blackburn Rovers, was sold to Wigan in 2010. He spent three seasons with the Lancashire-based outfit, scoring 13 goals in 97 appearances. Di Santo was an unused substitute during the club's FA Cup final victory over Manchester City in 2013, before being released at the end of that season. He made the move to the Bundesliga in August 2013 and has appeared to fulfil some of his early promise. Di Santo previously played for Chelsea but struggled to make an impact at Stamford Bridge and was sold . Di Santo played for Wigan for three seasons, scoring\xa013 goals in 97 appearances before being released . <|endoftext|>"]
+["Sunderland are trailing former Wigan striker Franco di Santo. The Argentine is playing for Werder Bremen and has scored 13 goals in 22 games this season. The Bundesliga side want £8million for the 26-year-old who Sunderland sporting director Lee Congerton knows well from his time at Chelsea. Sunderland are considering a summer move for in-form Werder Bremen forward Franco Di Santo . The Argentine has been in superb form for his club this season, netting 13 goals in 22 games . Di Santo began his senior career with Chilean side Audax Italiano in 2006, before catching the Blues' eye two years later. However, he failed to make an impact at Stamford Bridge and following a similarly ineffectual loan spell at Blackburn Rovers, was sold to Wigan in 2010. He spent three seasons with the Lancashire-based outfit, scoring 13 goals in 97 appearances. Di Santo was an unused substitute during the club's FA Cup final victory over Manchester City in 2013, before being released at the end of that season. He made the move to the Bundesliga in August 2013 and has appeared to fulfil some of his early promise. Di Santo previously played for Chelsea but struggled to make an impact at Stamford Bridge and was sold . Di Santo played for Wigan for three seasons, scoring\xa013 goals in 97 appearances before being released. TL;DR: <|endoftext|>"]
 [DEBUG INFO] len_str:[287]
 [DEBUG INFO] nextword_distribution shape:(1, 50257)
 [DEBUG INFO] distribution shape:(1, 50257)
@@ -118,11 +119,12 @@ HYPO str:
         if raw_text == "quit()":
             print('\n\nbye~')
             sys.exit(0)
-        generate_text, full_text = sample.generate(input_str=str(raw_text))
+        #generate_text, full_text = sample.generate(input_str=str(raw_text))
+        generate_text,_ = beam_search.search(input_str=[raw_text],generate_length=35)
         print("*"*100)
         print("GPT2 Generation:\n", generate_text)
-        print("*"*100)
-        print("Full Text Here:\n", full_text)
+        # print("*"*100)
+        # print("Full Text Here:\n", full_text)
         # with open("generation.txt","w") as txt:
         #     txt.write('Original:\n'+raw_text+'\n')
         #     txt.write('Generation:\n'+generate_text+'\n')
