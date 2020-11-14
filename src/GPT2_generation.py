@@ -217,9 +217,20 @@ class Sample():
         append_eos (bool): whether append <EOS> token id to input_ids pass directly to GPT2Model class. Default: False
     """
 
-    def __init__(self, decoder, model_config=None, generate_length=1, tokenizer=None, 
-        topk_num=0, topp_prob=1.0, temperature=1.0, min_tokens_to_keep=1, early_stop=False, 
-        demo_mode=False, return_ids=False,return_last_token_logits=False,append_eos=False):
+    def __init__(self,
+                 decoder,
+                 model_config=None,
+                 generate_length=1,
+                 tokenizer=None,
+                 topk_num=0,
+                 topp_prob=1.0,
+                 temperature=1.0,
+                 min_tokens_to_keep=1,
+                 early_stop=False,
+                 demo_mode=False,
+                 return_ids=False,
+                 return_last_token_logits=False,
+                 append_eos=False):
 
        
         assert model_config is not None, 'Config is a must for sampling.'
@@ -299,7 +310,6 @@ class Sample():
 
         # For datasets with paired inputs, such as Text Summarization(Article, Summary), QA(Question, Answer).
         if mode == "pair":
-
             for batch_idx in range(self.batch_size):
                 sentence_tensor = input_ids[batch_idx]
                 sentence_list = sentence_tensor.asnumpy().tolist()[1:]
@@ -440,6 +450,7 @@ class Sample():
             distribution = self.reshape(distribution, (self.vocab_size, self.batch_size))
             topk_distribution = distribution[:self.topk_num, ::]
             topk_distribution = self.reshape(topk_distribution, (self.batch_size, -1))
+            
             word_index = self.sample_function(topk_distribution, 1 , 1)
             word_index = self.reshape(word_index,(-1,))
             
@@ -466,8 +477,7 @@ class Sample():
         """
         if input_str is not None:
             assert self.tokenizer is not None, 'if choose to give input_str, a tokenizer is necessary.'
-        generate_str = [""] * self.batch_size
-                
+        generate_str = [""] * self.batch_size      
         
         if self.batch_size == 1 and self.demo_mode:
             # type check
@@ -493,8 +503,7 @@ class Sample():
         last_token = self.last_token_pos(input_str)
 
         for i in range(generate_length):
-            #only first input_ids
-            
+            #only first input_ids 
             input_ids, input_mask, len_str = self._tensorize_ids_with_masks(full_str)
             early_stop_mask = [0] * self.batch_size    
             
