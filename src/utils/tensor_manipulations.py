@@ -181,3 +181,43 @@ def extract_single_token_logits(logits = None, seq_pos = None):
             output_logits = P.Concat()((output_logits, logit))
 
     return output_logits
+
+def get_last_one_pos(input_mask:Tensor):
+    """
+    Arg:
+        input_mask (Tensor): (batch_size,seq_length)
+    Return:
+        pos (Tensor): (batch_size,)
+    """
+    pos = P.ReduceSum(keep_dims=False)(input_mask,axis=1) #(batch_size,)
+    pos = pos -1
+    return pos
+
+def get_next_one_pos(input_mask:Tensor):
+    """
+    Arg:
+        input_mask (Tensor): (batch_size,seq_length)
+    """
+    pos = P.ReduceSum(keep_dims=False)(input_mask,axis=1) #(batch_size,)
+    return pos
+
+def add_last_token_mask(input_mask:Tensor,overflow_strategy:str="shift"):
+    pos = get_next_one_pos(input_mask).asnumpy()
+    input_mask_np = input_mask.asnumpy()
+    maximum_length = input_mask.shape[1]
+    batch_size = input_mask.shape[0]
+    for idx in range(batch_size):
+        #not overflow
+        if pos[idx] < maximum_length:
+            input_mask_np[idx][pos[idx]] = 1
+
+        #overflow
+        else:
+            if overflow_strategy == "shift":
+                continue
+            if overflow_strategy == "truncate":
+                continue
+            else:
+                raise ValueError("{} not an option in ['shift','truncate'].".format(overflow_strategy))
+    return Tensor(input_mask_np,dtype=mstype.int32)
+    
