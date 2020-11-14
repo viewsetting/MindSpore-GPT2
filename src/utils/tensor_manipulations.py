@@ -189,7 +189,9 @@ def get_last_one_pos(input_mask:Tensor):
     Return:
         pos (Tensor): (batch_size,)
     """
-    pos = P.ReduceSum(keep_dims=False)(input_mask,axis=1) #(batch_size,)
+    input_mask_ = P.Cast()(input_mask,mstype.float32)
+    pos = P.ReduceSum(keep_dims=False)(input_mask_,axis=1) #(batch_size,)
+    pos = P.Cast()(pos,mstype.int32)
     pos = pos -1
     return pos
 
@@ -198,7 +200,9 @@ def get_next_one_pos(input_mask:Tensor):
     Arg:
         input_mask (Tensor): (batch_size,seq_length)
     """
-    pos = P.ReduceSum(keep_dims=False)(input_mask,axis=1) #(batch_size,)
+    input_mask_ = P.Cast()(input_mask,mstype.float32)
+    pos = P.ReduceSum(keep_dims=False)(input_mask_,axis=1) #(batch_size,)
+    pos = P.Cast()(pos,mstype.int32)
     return pos
 
 def add_last_token_mask(input_mask:Tensor,overflow_strategy:str="shift"):
