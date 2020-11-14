@@ -965,6 +965,7 @@ class BeamSearch(Sample):
             self.prev_scores = np.zeros((self.batch_size,self.beam_size).astype(np.float32))
             self.gen_ids = np.zeros((self.batch_size,self.beam_size,self.beam_size).astype(np.int32))
             self.step = 0
+            self.input_ids = input_ids
             self.input_ids_np = self.input_ids.asnumpy()
             #initialize input_mask by given input_mask
             self.input_mask = input_mask
@@ -1100,7 +1101,7 @@ class BeamSearch(Sample):
                     rank_index = candidates_index[batch_idx][rank_idx][1]
                     next_token_id = self.gen_ids[batch_idx][parent_index][rank_index]
                     if self.past_ids_len[batch_idx][beam_idx] > self.maximum_length:
-                        #shift
+                        #if overflow, shift to left for 1 token
                         self.past_ids[batch_idx ][beam_idx][:-1] = self.past_ids[batch_idx ][beam_idx][1:]
                         self.past_ids[batch_idx ][beam_idx][-1] = next_token_id
                     else:
@@ -1111,7 +1112,7 @@ class BeamSearch(Sample):
 
         def record_beam(self,topk_indices,topk_logits,rank_id):
             """
-            record_result of single run
+            record_result of a single run
             """
             
             topk_indices = topk_indices.asnumpy()
@@ -1126,13 +1127,26 @@ class BeamSearch(Sample):
 
             
         def beam_generate(self,beam_size):
+            """
+
+            beam generation for each rank in size of beam_size
+
+            Args:
+                beam_size: beam size(rank size here)
+            """
+            #for loop to run full beam in one step of generation
             for rank_id in range(beam_size):
                 self.input_ids,self.input_mask = self.get_input(rank_id)
                 topk_indices,topk_logits = self.generate_one_step(self.input_ids,self.input_mask,beam_size=self.beam_size)
                 self.record_beam(topk_indices,topk_logits,rank_id)
+
+            #calculate scores first
             scores = self.calculate_score()
+            #get candidates
             candidates_index = self.gather_candidates(scores)
+            #update prev_score
             past_ids_index = self.update_prev_score(candidates_index)
+            #update past_ids
             self.reform_past_ids(past_ids_index,candidates_index)
             #update input_mask
             self.input_mask = add_last_token_mask(input_mask=self.input_mask,overflow_strategy="shift")
