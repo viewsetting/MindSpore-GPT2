@@ -6,7 +6,7 @@ from mindspore.ops import operations as P
 from mindspore import Tensor, Model, Parameter
 from mindspore import dtype as mstype
 from .utils.extract_logits_lambada import extract_logits
-from .utils.tensor_manipulations import extract_single_token_logits
+from .utils.tensor_manipulations import extract_single_token_logits,tensorize_ids_with_masks
 from mindspore.context import get_context
 
 INF = 1. * 1e9
@@ -251,6 +251,7 @@ class Sample():
         self.append_eos = append_eos
         self.device_target = get_context("device_target")
 
+        #different choice of sample function for adjusting several device target types
         if self.device_target == "GPU":
             self.sample_function = P.Multinomial(seed=1)
         elif self.device_target == "Ascend":
@@ -269,6 +270,11 @@ class Sample():
             self.eos_id = self.tokenizer.eos_token_id
         else:
             self.eos_id = model_config.vocab_size-1
+
+        if self.tokenizer is not None:
+            self.eos_text = self.tokenizer.eos_token
+        else:
+            self.eos_text = "<|endoftext|>"
 
         if self.demo_mode is True:
             assert self.batch_size == 1, 'Demo mode requires batchsize euqals to 1, but get batch_size={}'.format(
@@ -424,10 +430,20 @@ class Sample():
     class last_token_pos():
         """
         class for record input_strs and the position of their last tokens 
+
+        Args:
+            input_ (Union): list if input is a list containing strs, Tensor with shape (batch_size,seq_length) representing input_mask
         """
-        def __init__(self, input_strs):
-            self.input_strs = input_strs
-            self.pos_list = [ len(input_str)-1 for input_str in self.input_strs]
+        def __init__(self, input_:Union[list,Tensor]):
+            self.input_strs = input_ if type(input_) is str else None
+            self.input_mask = input_ if type(input_) is not str else None
+            if self.input_strs is not None:
+                self.pos_list = [ len(input_str)-1 for input_str in self.input_strs]
+            else:
+                #Tensor (batch_size,seq_length) --> list ,len(list) = batch_size
+                temp_pos_list = P.ReduceSum(keep_dim=False)(self.input_mask,axis=1).asnumpy().tolist()
+                #minimum value is always 0 for safety 
+                self.pos_list = [max(0,pos-1) for pos in temp_pos_list]
         
         def get_pos(self, shift:int = 0):
             shift_list = [pos+shift for pos in self.pos_list]
@@ -451,6 +467,18 @@ class Sample():
             raise ValueError("Device type {} not supported yet.".format(self.device_target))
 
         return word_index
+
+
+    def generate_one_step(self,input_ids,input_mask,beam_size=1):
+        logits = self.decoder.predict(input_ids, input_mask)
+        last_token_pos_recorder = self.last_token_pos(input_mask)
+        last_token_pos_list = last_token_pos_recorder.get_pos(shift=0)
+        return_last_logits = extract_single_token_logits(logits, last_token_pos_list) #(batch_size,1,vocab_size)
+        return_last_logits = self.reshape(return_last_logits,(self.batch_size,self.vocab_size)) #(batch_size,vocab_size)
+        topk_logits,topk_indices = P.TopK(sorted=True)(return_last_logits,beam_size) #(batch,beam_size)
+        return topk_indices,topk_logits
+
+
 
     def generate(self, input_str=None, generate_length=None):
         """
@@ -509,8 +537,8 @@ class Sample():
                     return_last_logits = extract_single_token_logits(logits, last_token_pos_list)
                 else:
                     #[batch_size,1,vocab_size] + [batch_size,i,vocab_size] --> [batch_size,i+1,vocaab_size]
-                    return_last_logits = P.Concat(axis=1)(return_last_logits,
-                                                          extract_single_token_logits(logits, last_token_pos_list))
+                    return_last_logits = P.Concat(axis=1)((return_last_logits,
+                                                          extract_single_token_logits(logits, last_token_pos_list)))
             
             nextword_distribution = self.reshape(logits[0, len_str[0]-1:len_str[0]:1, ::], (1, -1))
 
@@ -626,9 +654,12 @@ class Sample():
 
             else:
                 generated_summary = generate_str
+
+            #if all of str hs been clipped, restore it to beginning state.
             if generated_summary == '':
                 generated_summary = generate_str  
-                
+            
+            #empty str check
             if generated_summary == '':
                 generated_summary = '<empty>'
             generated_summary_list[article_idx] = generated_summary
@@ -822,7 +853,35 @@ class Sample():
         # print("=============================================")
         return passage, pred_answer, answer_str
 
+class BeamSearch(Sample):
+    def __init__(self,decoder,model_config,tokenizer,beam_size=1,input_ids=None,input_str=None,input_mask=None):
+        super(BeamSearch,self).__init__(decoder=decoder,model_config=model_config,generate_length=1,tokenizer=tokenizer)
+        self.decoder=decoder
+        self.model_config=model_config
+        self.tokenizer=tokenizer
+        self.beam_size = beam_size
+        #init
+        assert type(input_str) is list, "input_str a list not a {}.".format(type(input_str))
+        if input_str is None:
+            assert input_ids is not None and input_mask is not None,"if input_str is None, input_ids and input_mask both required."
+        if input_str is not None:
+            self.input_ids,self.input_mask,self.input_str_len_list = tensorize_ids_with_masks(input_str,tokenizer=self.tokenizer)
+        else:
+            self.input_ids = input_ids
+            self.input_mask = input_mask
 
+    def search(self,input_str=None,input_ids=None,input_mask=None,generate_length=1):
+        #generate
+        for time_step in range(generate_length):
+            topk_indices,topk_logits = self.generate_one_step(input_ids,input_mask,beam_size=self.beam_size)
+            
+
+    class rank():
+        def __init__(self):
+            self.prob = np.zeros((self.batch_size,self.beam_size*self.beam_size))
+            self.generated_ids = [[] for _ in range(self.batch_size)]
+        
+        
 
 if __name__ == '__main__':
     # s = Sample(None)
