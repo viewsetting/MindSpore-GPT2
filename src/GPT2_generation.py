@@ -6,7 +6,7 @@ from mindspore.ops import operations as P
 from mindspore import Tensor, Model, Parameter
 from mindspore import dtype as mstype
 from .utils.extract_logits_lambada import extract_logits
-from .utils.tensor_manipulations import extract_single_token_logits,tensorize_ids_with_masks
+from .utils.tensor_manipulations import extract_single_token_logits,tensorize_ids_with_masks,add_last_token_mask,get_next_one_pos
 from mindspore.context import get_context
 
 INF = 1. * 1e9
@@ -460,7 +460,17 @@ class Sample():
             return shift_list
 
 
-    def _sample_from_distribution(self,distribution):
+    def _sample_from_distribution(self,distribution:Tensor):
+        """
+        sample one token per batch from self.sample_function(). sample function may varies due to different type of Device target.
+
+        Arg:
+            distribution (Tensor): (batch_size,vocab_length) distribution or logits of the last token of different batches.
+        
+        Return:
+            word_index (Tensor): (batch_size,)
+
+        """
         # reshape if Ascend
         if self.device_target == "Ascend":
             distribution = self.reshape(distribution, (self.vocab_size, self.batch_size))
@@ -480,20 +490,33 @@ class Sample():
         return word_index
 
 
-    def generate_one_step(self,input_ids,input_mask,beam_size=1):
+    def generate_one_step(self,input_ids:Tensor,input_mask:Tensor,beam_size=1):
+        """
+        generate next token for only one step, use softmax to regularize logits
+
+        Arg:
+            input_ids (Tensor): (batch_size,seq_length) ids of input text
+            input_mask (Tensor): (batch_size,seq_length) mask of input text, 0 for mask, 1 for reserved
+            beam_size (int): int, beam_size for each candidate text
+        
+        Return:
+            topk_indices (Tensor): (batch_size,beam_size), topk (k = beam_size) num of the next token indices for each batch 
+            topk_logits (Tensor): (batch_size,beam_size), topk (k = beam_size) num of the next token logits(distribution) for each batch 
+        """
         logits = self.decoder.predict(input_ids, input_mask)
         last_token_pos_recorder = self.last_token_pos(input_mask)
         last_token_pos_list = last_token_pos_recorder.get_pos(shift=0)
         return_last_logits = extract_single_token_logits(logits, last_token_pos_list) #(batch_size,1,vocab_size)
         return_last_logits = self.reshape(return_last_logits,(self.batch_size,self.vocab_size)) #(batch_size,vocab_size)
-        topk_logits,topk_indices = P.TopK(sorted=True)(return_last_logits,beam_size) #(batch,beam_size)
+        return_last_logits = P.SoftMax()(return_last_logits)
+        topk_logits,topk_indices = P.TopK(sorted=True)(return_last_logits,beam_size) #(batch_size,beam_size)
         return topk_indices,topk_logits
 
 
 
     def generate(self, input_str=None, generate_length=None):
         """
-        base function for text generation
+        base function for text generation given a batch-size list of str or str itself (when demo mode is on)
         
         Args
             input_str ([str] or str): prompt string
@@ -863,13 +886,39 @@ class Sample():
         return passage, pred_answer, answer_str
 
 class BeamSearch(Sample):
-    def __init__(self,decoder,model_config,tokenizer,beam_size=1,input_ids=None,input_str=None,input_mask=None):
+    """
+    Args:
+        decoder (Model): Model for decoding
+        mdoel_config (GPT2Config): configuration of GPT2 decoder
+        tokenizer (Tokenizer): tokenizer for decoder
+        beam_size (int): beam size
+    """
+    def __init__(self,
+                decoder,
+                model_config,
+                tokenizer,
+                beam_size=1):
         super(BeamSearch,self).__init__(decoder=decoder,model_config=model_config,generate_length=1,tokenizer=tokenizer)
         self.decoder=decoder
         self.model_config=model_config
         self.tokenizer=tokenizer
         self.beam_size = beam_size
-        #init
+        self.eos_token_id = self.tokenizer.eos_token_id
+
+    
+                   
+
+    def search(self,input_str=None,input_ids=None,input_mask=None,generate_length=1):
+        """
+        Args:
+            input_str (list) : list of input strings
+            input_ids (Tensor): (batch_size,seq_length)
+            input_mask (Tensor): (batch_size,seq_length)
+            generate_length (int): length of tokens to generate
+        """
+
+
+        #init inputs
         assert type(input_str) is list, "input_str a list not a {}.".format(type(input_str))
         if input_str is None:
             assert input_ids is not None and input_mask is not None,"if input_str is None, input_ids and input_mask both required."
@@ -878,17 +927,217 @@ class BeamSearch(Sample):
         else:
             self.input_ids = input_ids
             self.input_mask = input_mask
+            self.input_str_len_list = get_next_one_pos(input_mask).asnumpy().tolist()
 
-    def search(self,input_str=None,input_ids=None,input_mask=None,generate_length=1):
-        #generate
-        for time_step in range(generate_length):
-            topk_indices,topk_logits = self.generate_one_step(input_ids,input_mask,beam_size=self.beam_size)
+        ranker = self.rank(batch_size = self.batch_size,
+                                beam_size = self.beam_size,
+                                input_ids=self.input_ids,
+                                input_mask=self.input_mask,
+                                past_ids_len=self.input_str_len_list)
+        #generate for length-1 for 1 token is prepared directly
+        for time_step in range(generate_length-1):
+            ranker.beam_generate(self.beam_size)
+
+        max_beam_index = [np.argmax(score) for score in ranker.prev_scores]
+        max_beams = []
+        for batch_idx in range(self.batch_size):
+            beam_index = max_beam_index[batch_idx]
+            max_beams.append(ranker.past_ids[batch_idx][beam_index].tolist())
+        
+        max_beams_str = [self.tokenizer.decode(ids) for ids in max_beams]
+        return max_beams_str,max_beams
             
+    class penalty():
+        def __init__(self):
+            pass
 
     class rank():
-        def __init__(self):
-            self.prob = np.zeros((self.batch_size,self.beam_size*self.beam_size))
-            self.generated_ids = [[] for _ in range(self.batch_size)]
+        """
+        Args:
+            batch_size (int): batch size
+            beam_size (int): beam size
+            input_ids (Tensor)
+        """
+        def __init__(self,batch_size:int,beam_size:int,input_ids:Tensor,input_mask:Tensor,past_ids_len:list):
+            self.batch_size = batch_size
+            self.beam_size = beam_size
+            self.gen_scores = np.zeros((self.batch_size,self.beam_size,self.beam_size).astype(np.float32))
+            self.prev_scores = np.zeros((self.batch_size,self.beam_size).astype(np.float32))
+            self.gen_ids = np.zeros((self.batch_size,self.beam_size,self.beam_size).astype(np.int32))
+            self.step = 0
+            self.input_ids_np = self.input_ids.asnumpy()
+            #initialize input_mask by given input_mask
+            self.input_mask = input_mask
+            self.maximum_length = input_mask.shape[1]
+            #list (batch_size,beam_size(rank),seq_length)
+            #initialize strategy: set every beam as the same as the input
+            #past_ids (List): (batch_size,beam_size), each element containing input_ids of a batch(seq_length,)
+            self.past_ids = [ [ self.input_ids_np[batch_idx] for _ in range(self.beam_size)] for batch_idx in range(self.batch_size)]
+            self.past_ids_len = [[past_ids_len[batch_idx] for _ in range(self.beam_size)] for batch_idx in range(self.batch_size)]
+            self.prepare_for_rank()
+
+        def prepare_for_rank(self):
+            topk_indices,topk_logits = self.generate_one_step(self.input_ids,self.input_mask,beam_size=self.beam_size)
+            #update prev_scores directly from topk_logits
+            self.prev_scores = self.score_func(topk_logits.asnumpy(),mode="log")
+            topk_indices_np = topk_indice.asnumpy()
+            for batch_idx in range(self.batch_size):
+                for beam_idx in range(self.beam_size):
+                    if self.past_ids_len[batch_idx][beam_idx] < self.maximum_length:
+                        index_ = self.past_ids_len[batch_idx][beam_idx]
+                        self.past_ids[batch_idx][beam_idx][index_] = topk_indices_np[batch_idx][beam_idx]
+                        self.past_ids_len[batch_idx][beam_idx] += 1
+                    else:
+                        #shift if overflow
+                        self.past_ids[batch_idx][beam_idx][:-1]=self.past_ids[batch_idx][beam_idx][1:]
+                        self.past_ids[batch_idx][beam_idx][-1] = topk_indices_np[batch_idx][beam_idx]
+                        
+            #update input_mask
+            self.input_mask = add_last_token_mask(input_mask=self.input_mask,overflow_strategy="shift")
+        
+        def get_input(self,rank_id):
+            rank_input = []
+            for batch_idx in range(self.batch_size):
+                rank_input.append(self.past_ids[batch_idx][rank_id].tolist())
+            rank_input_ids = Tensor(np.array(rank_input),dtype=mstype.int32)
+            return rank_input_ids,self.input_mask
+            
+        def score_func(self,val,mode="log"):
+            if mode == "log":
+                return np.log(val)
+            else:
+                raise ValueError("score function {} Not supported".format(mode))
+
+        def sum_score(self,prev,gen):
+            """
+            add up score(log)
+
+            same shape of np.array as self.gen_score 
+            """
+            gen = self.score_func(gen,mode="log")
+            
+            for batch_id in range(self.batch_size):
+                for beam_id in range(self.beam_size):
+                    for rank_id in range(self.beam_size):
+                        gen[batch_id][beam_id][rank_id] =  gen[batch_id][beam_id][rank_id] + prev[batch_id][beam_id]        
+            return gen
+
+        def get_2D_topk_index(self,score):
+            """
+            Arg:
+                score (beam_size,beam_size(rank))
+            return:
+                list of tuples (parent_beam,rank_id)
+            """
+            #flatten
+            score_ = score.reshape(-1)
+            argsort = score_.argsort()
+            return_list = []
+            # 2D-score for a batch:
+            # [[0.0,0.1,0.2],
+            # [0.5,0.4,0.3],
+            # [0.7,0.8,0.6]] 
+            # --flatten--> [0.0,0.1,0.2,0.5,0.4,0.3,0.7,0.8,0.6] --argsort--> [0,1,2,5,4,3,7,8,6] 
+            # --choose top k = beam_size --> [7,9,6] -- return_list --> [(2,1),(2,2),(2,0)]
+            for idx in range(self.batch_size*self.batch_size):
+                if argsort[idx]>=self.batch_size*(self.beam_size-1):
+                    parent_beam = int(idx)/int(self.batch_size)
+                    rank_id = int(idx)%int(self.batch_size)
+                    return_list.append((parent_beam,rank_id))
+            return return_list
+
+        def update_prev_score(self,candidates_index):
+            """
+            Return:
+                total_prev_index (list): (batch_size,beam_size) updated index of prefix(past_ids)
+            """
+            total_prev_index = []
+            for batch_idx in range(self.batch_size):
+                prev_text_index = []
+                for rank_idx in range(self.beam_size):
+                    parent_index = candidates_index[batch_idx][rank_idx][0]
+                    rank_index = candidates_index[batch_idx][rank_idx][1]
+                    #maintaining prev_index to update past_ids
+                    prev_text_index.append(parent_index)
+                    #update prev_score
+                    self.prev_scores[batch_idx][rank_idx] = self.gen_scores[batch_idx][parent_index][rank_index] + self.prev_scores[batch_idx][parent_index]
+                total_prev_index.append(prev_text_index)
+            
+            return total_prev_index
+                 
+        
+        def gather_candidates(self,scores):
+            """
+            scores (batch_size,beam_size,beam_size(rank_size))
+            Return:
+                total_candidates list(batch_size,beam_size) of tuples,each tuple containing the candidates info (parent_beam,rank_id)
+            """
+            total_candidates = []
+            for batch_idx in range(self.batch_size):
+                batch_candidates = []
+                score_ = scores[batch_idx]
+                index_ = self.get_2D_topk_index(score_)
+                total_candidates.append(index_)
+            return total_candidates                
+
+
+
+        def calculate_score(self):
+            """
+            interface of score calculation
+            sum_score for now
+            """
+            scores = self.sum_score(self.prev_scores,self.gen_scores)
+            return scores
+
+        
+        def reform_past_ids(self,past_ids_index,candidates_index):
+            
+            for batch_idx in range(self.batch_size):
+                past_id = []
+                for beam_idx in range(self.beam_size):
+                    parent_index = candidates_index[batch_idx][rank_idx][0]
+                    rank_index = candidates_index[batch_idx][rank_idx][1]
+                    next_token_id = self.gen_ids[batch_idx][parent_index][rank_index]
+                    if self.past_ids_len[batch_idx][beam_idx] > self.maximum_length:
+                        #shift
+                        self.past_ids[batch_idx ][beam_idx][:-1] = self.past_ids[batch_idx ][beam_idx][1:]
+                        self.past_ids[batch_idx ][beam_idx][-1] = next_token_id
+                    else:
+                        next_token_index = self.past_ids_len[batch_idx][beam_idx]
+                        self.past_ids[batch_idx][beam_idx][next_token_index] = next_token_id
+                        self.past_ids_len[batch_idx][beam_idx] += 1
+            pass
+
+        def record_beam(self,topk_indices,topk_logits,rank_id):
+            """
+            record_result of single run
+            """
+            
+            topk_indices = topk_indices.asnumpy()
+            topk_logits = topk_logits.asnumpy()
+            
+            #record
+            for batch_idx in range(self.batch_size):
+                self.gen_scores[batch_idx][:][rank_id] = topk_logits[batch_idx][:]
+                self.gen_ids[batch_idx][:][rank_id]  = topk_indices[batch_idx][:]
+            pass
+
+
+            
+        def beam_generate(self,beam_size):
+            for rank_id in range(beam_size):
+                self.input_ids,self.input_mask = self.get_input(rank_id)
+                topk_indices,topk_logits = self.generate_one_step(self.input_ids,self.input_mask,beam_size=self.beam_size)
+                self.record_beam(topk_indices,topk_logits,rank_id)
+            scores = self.calculate_score()
+            candidates_index = self.gather_candidates(scores)
+            past_ids_index = self.update_prev_score(candidates_index)
+            self.reform_past_ids(past_ids_index,candidates_index)
+            #update input_mask
+            self.input_mask = add_last_token_mask(input_mask=self.input_mask,overflow_strategy="shift")
+            
+            
         
         
 
