@@ -8,7 +8,7 @@ from src.utils.tokenization import Tokenizer
 from mindspore.ops import operations as P
 from src.GPT2ForSummarization import GPT2SummarizationModel
 from src.GPT2ForLanguageModel import GPT2LanguageModel
-from src.GPT2_generation import Sample,BeamSearch
+from src.utils.generation_utils import Sample,BeamSearch
 import mindspore.nn as nn
 from mindspore import context,Tensor, Model, Parameter
 from mindspore import dtype as mstype
@@ -80,15 +80,16 @@ if __name__ == '__main__':
     print('*'*65)
     print('Set Running Env and Load Model')
     gpt2, config = set_env(mode="GPU",device_id=2)
-    generate_length = 50
+    
 
     tokenizer = Tokenizer(vocab_file='./src/utils/pretrain-data/gpt2-vocab.json',
                           merge_file='./src/utils/pretrain-data/gpt2-merges.txt')
 
+    generate_length = 100
     sample = Sample(gpt2, generate_length=generate_length, tokenizer=tokenizer,
                     model_config=config, topk_num=0, topp_prob=0.9, min_tokens_to_keep=1,demo_mode=True)
     beam_search = BeamSearch(decoder = gpt2,model_config=config,tokenizer=tokenizer,beam_size=3)
-
+    
     official_unicorn_demo = "In a shocking finding, scientist discovered a herd of unicorns living in a remote, previously unexplored valley, in the Andes Mountains. Even more surprising to the researchers was the fact that the unicorns spoke perfect English."
 
     """
@@ -120,9 +121,11 @@ HYPO str:
             print('\n\nbye~')
             sys.exit(0)
         #generate_text, full_text = sample.generate(input_str=str(raw_text))
-        generate_text,_ = beam_search.search(input_str=[raw_text],generate_length=35)
+        generate_text,_ = beam_search.generate(input_str=[raw_text],generate_length=generate_length)
         print("*"*100)
-        print("GPT2 Generation:\n", generate_text)
+        print("Original:\n",raw_text)
+        print("*"*100)
+        print("GPT2 Generation:\n", generate_text[0])
         # print("*"*100)
         # print("Full Text Here:\n", full_text)
         # with open("generation.txt","w") as txt:
