@@ -3,7 +3,9 @@ from mindspore import dtype as mstype
 from mindspore.ops import operations as P
 from typing import TypeVar, Union
 from .tokenization import Tokenizer
+from .mock_config import MockConfig
 import numpy as np
+
 
 def extract_string_from_tensor(input_ids: Tensor, mode="single",config = None, tokenizer = None):
         """
@@ -20,12 +22,17 @@ def extract_string_from_tensor(input_ids: Tensor, mode="single",config = None, t
                 for pair mode,  it will return prompt_list, reference_list
         """
 
-        assert config is not None, 'There is no GPT2-config, the configuration is compulsory parameter'
+        # assert config is not None, 'There is no GPT2-config, the configuration is compulsory parameter'
 
+        # if tokenizer is None:
+        #     tokenizer = Tokenizer()
+        #     print('[WARNING] parameter: tokenizer is missing in utils.tensor_manipulations.extract_string_from_tensor, using Tokenizer() as default tokenizer')
+        mock_config = MockConfig(input_ids=input_ids,tokenizer=tokenizer)
+        if config is None:
+            config = mock_config
         if tokenizer is None:
-            tokenizer = Tokenizer()
-            print('[WARNING] parameter: tokenizer is missing in utils.tensor_manipulations.extract_string_from_tensor, using Tokenizer() as default tokenizer')
-
+            tokenizer = mock_config.get_tokenizer()
+        
         reshape = P.Reshape()
         batch_size = config.batch_size
         seq_length = config.seq_length
@@ -108,14 +115,14 @@ def tensorize_ids_with_masks(src_str,config=None,tokenizer=None,add_special_toke
         """
         if type(src_str)==str:
             src_str = [src_str]
-        
-        assert config is not None, 'There is no GPT2-config, the configuration is compulsory parameter'
 
+        mock_config = MockConfig(tokenizer=tokenizer,input_str=src_str)
+        if config is None:
+            config = mock_config
         if tokenizer is None:
-            tokenizer = Tokenizer()
-            print('[WARNING] parameter: tokenizer is missing in utils.tensor_manipulations.tensorize_ids_with_masks, using Tokenizer() as default tokenizer')
-
-
+            tokenizer = mock_config.get_tokenizer()
+        
+        
         batch_size = config.batch_size
         seq_length = config.seq_length
         reshape = P.Reshape()
