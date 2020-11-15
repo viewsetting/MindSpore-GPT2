@@ -21,8 +21,9 @@ from mindspore.train.model import Model
 from mindspore.train.callback import CheckpointConfig, ModelCheckpoint, TimeMonitor, LossMonitor
 from mindspore.train.serialization import load_checkpoint, load_param_into_net
 from src.utils.tokenization import Tokenizer
+from src.utils.generation_utils import GenerationConfig
 from mindspore.ops import operations as P
-from src.GPT2_generation import Sample
+from src.GPT2_generation import generate_for_CNN_DAILYMAIL
 
 def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoint_path="", epoch_num=1):
     """
@@ -161,7 +162,7 @@ def remove_repetition(hypo,window_range = 3):
     return new_hypo
 
 
-def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",eval_load_param_mode="finetune",topk=2,topp=1.0,temperature=1.0,append_eos=False):
+def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",eval_load_param_mode="finetune",generation_config_path=""):
     """
     Do evaluation on summarization
     Args:
@@ -192,8 +193,9 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",eva
         model = Model(gpt2_loss)
         tokenizer = Tokenizer(vocab_file='./src/utils/pretrain-data/gpt2-vocab.json',
         merge_file='./src/utils/pretrain-data/gpt2-merges.txt')
-        sample = Sample(model,tokenizer=tokenizer,model_config=gpt2_net_cfg,topk_num = topk,topp_prob=topp,
-        min_tokens_to_keep=1,demo_mode=False,temperature=temperature,append_eos=append_eos)
+        generate_config = GenerationConfig( file_path=generation_config_path)
+        #sample = Sample(model,tokenizer=tokenizer,model_config=gpt2_net_cfg,topk_num = topk,topp_prob=topp,
+        #min_tokens_to_keep=1,demo_mode=False,temperature=temperature,append_eos=append_eos)
 
         #load data and process text generation
         columns_list = ["input_ids", "input_mask", "label_ids"]
@@ -207,10 +209,15 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",eva
             print("label_ids shape: {}".format(label_ids.shape))
             print("="*15," Summrization Testing ","="*15)
            
-            hypo,ref = sample.generate_for_CNN_DAILYMAIL(input_ids,generate_length=100,select_sentence=3,TL_DR=True,tldr_str="TL;DR:")
-            hypo = remove_repetition(hypo)
+            hypo,ref = generate_for_CNN_DAILYMAIL(model,input_ids,
+                                                select_sentence=3,
+                                                TL_DR=True,
+                                                tldr_str="TL;DR:",
+                                                tokenizer=tokenizer,
+                                                generate_config=generate_config)
+            #hypo = remove_repetition(hypo)
             print("REF str:\n ",ref,"\nHYPO str:\n",hypo,"\n")
-            callback.update(ref, hypo)
+            callback.update(hypo,ref)
 
         print("="*35)
         eval_result_print(metric, callback)
@@ -272,6 +279,8 @@ def run_summarization():
                         help="temperature on logits for sampling")
     parser.add_argument("--append_eos", type=bool, default=False,
                         help="if append <EOS> token to the end of input str")
+    parser.add_argument("--generation_config_path", type=str, default=".scripts/summary_generation_config.json",
+                        help="if append <EOS> token to the end of input str")
 
         
     #get args
@@ -287,6 +296,7 @@ def run_summarization():
     topp = args_opt.top_p
     temperature = args_opt.temp
     append_eos = args_opt.append_eos
+    generation_config_path = args_opt.generation_config_path
 
     if args_opt.do_train.lower() == "false" and args_opt.do_eval.lower() == "false":
         raise ValueError("At least one of 'do_train' or 'do_eval' must be true")
@@ -322,7 +332,7 @@ def run_summarization():
         print("============ Start Loading Evaluation Dataset ============")
         eval_dataset = create_cnn_dailymail_dataset(
             dataset_path=eval_dataset_file_path)
-        do_eval(eval_dataset, GPT2SummarizationModel, metric, load_finetune_ckpt_path,eval_load_param_mode,topk,topp,temperature,append_eos)
+        do_eval(eval_dataset, GPT2SummarizationModel, metric, load_finetune_ckpt_path,eval_load_param_mode,generation_config_path)
 
 
 
