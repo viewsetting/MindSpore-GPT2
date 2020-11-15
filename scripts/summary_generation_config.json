@@ -1,0 +1,8 @@
+{
+    "generate_mode":"beam",
+    "topk":2,
+    "topp":1,
+    "temperature":1.0,
+    "generate_length":100,
+    "beam_size":3
+}
