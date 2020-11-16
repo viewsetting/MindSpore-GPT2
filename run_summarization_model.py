@@ -162,7 +162,7 @@ def remove_repetition(hypo,window_range = 3):
     return new_hypo
 
 
-def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",eval_load_param_mode="finetune",generation_config_path=""):
+def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",eval_load_param_mode="zero-shot",generation_config_path=""):
     """
     Do evaluation on summarization
     Args:
@@ -194,6 +194,8 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",eva
         tokenizer = Tokenizer(vocab_file='./src/utils/pretrain-data/gpt2-vocab.json',
         merge_file='./src/utils/pretrain-data/gpt2-merges.txt')
         generate_config = GenerationConfig( file_path=generation_config_path)
+        TL_DR = generate_config.get_arg("tldr") if generate_config.get_arg("tldr") is not None else True
+        tldr_str = generate_config.get_arg("tldr_str") if generate_config.get_arg("tldr_str") is not None else "TL;DR:"
         #sample = Sample(model,tokenizer=tokenizer,model_config=gpt2_net_cfg,topk_num = topk,topp_prob=topp,
         #min_tokens_to_keep=1,demo_mode=False,temperature=temperature,append_eos=append_eos)
 
@@ -211,8 +213,8 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",eva
            
             hypo,ref = generate_for_CNN_DAILYMAIL(model,input_ids,
                                                 select_sentence=3,
-                                                TL_DR=True,
-                                                tldr_str="TL;DR:",
+                                                TL_DR=TL_DR,
+                                                tldr_str=tldr_str,
                                                 tokenizer=tokenizer,
                                                 generate_config=generate_config)
             #hypo = remove_repetition(hypo)
