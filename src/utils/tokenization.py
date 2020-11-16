@@ -80,9 +80,10 @@ class GPT2Tokenizer():
 
         bpe_merges = [tuple(merge.split()) for merge in bpe_merges]
 
-        self.bpe_ranks = dict(zip(bpe_merges,range(len(bpe_merges))))
+        self.bpe_ranks = dict(zip(bpe_merges, range(len(bpe_merges))))
         self.byte_encoder = bytes_to_unicode()
-        self.byte_decoder = {v:k for k,v in self.byte_encoder.items()}
+        self.byte_decoder = {v:k for k, v in self.byte_encoder.items()}
+        self.unique_no_split_tokens = ["<|endoftext|>"]  # List[str]
         
         self.pat = re.compile(r"""'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""")
         self.add_prefix_space = add_prefix_space
@@ -96,7 +97,6 @@ class GPT2Tokenizer():
         self.eos_token_id = 50256
         self.pad_token = "<|endoftext|>"
         self.pad_token_id = 50256
-
 
     def bpe(self, token):
         
@@ -142,27 +142,80 @@ class GPT2Tokenizer():
         return word
 
     def _tokenize(self, text):
-        """ Tokenize a string using bpe encode. """
-        text = self.prepare_for_tokenization(text,is_pretokenized = False)
-        #print(text)
+        """
+        Tokenize a string using bpe encode.
+
+        Args:
+            text (str): The sequence to be encoded.
+
+        Returns:
+            bpe_tokens (List[str]): The list of tokens.
+        """
+        text = self.prepare_for_tokenization(text, is_pretokenized=False)
         bpe_tokens = []
         for token in re.findall(self.pat, text):
-            token = "".join(
-                self.byte_encoder[b] for b in token.encode("utf-8")
-            )
+            token = "".join(self.byte_encoder[b] for b in token.encode("utf-8"))
             bpe_tokens.extend(bpe_token for bpe_token in self.bpe(token).split(" "))
         return bpe_tokens
-    
+
+    def tokenize(self, text):
+        def split_on_token(tok, text):
+            result = []
+            split_text = text.split(tok)
+            for i, sub_text in enumerate(split_text):
+                if i < len(split_text) - 1:
+                    sub_text = sub_text.rstrip()
+                if i > 0:
+                    sub_text = sub_text.lstrip()
+                if i == 0 and not sub_text:
+                    result += [tok]
+                elif i == len(split_text) - 1:
+                    if sub_text:
+                        result += [sub_text]
+                    else:
+                        pass
+                else:
+                    if sub_text:
+                        result += [sub_text]
+                    result += [tok]
+            return result
+
+        def split_on_tokens(tok_list, text):
+            if not text.strip():
+                return []
+            if not tok_list:
+                return self._tokenize(text)
+
+            tokenized_text = []
+            text_list = [text]
+            for tok in tok_list:
+                tokenized_text = []
+                for sub_text in text_list:
+                    if sub_text not in self.unique_no_split_tokens:
+                        tokenized_text += split_on_token(tok, sub_text)
+                    else:
+                        tokenized_text += [sub_text]
+                text_list = tokenized_text
+
+            bpe_token = []
+            for token in text_list:
+                if token not in self.unique_no_split_tokens:
+                    bpe_token += self._tokenize(token)
+                else:
+                    bpe_token += [token]
+            return bpe_token
+
+        no_split_token = self.unique_no_split_tokens
+        tokenized_text = split_on_tokens(no_split_token, text)
+        return tokenized_text
 
     def _convert_token_to_id(self, token):
         """ the index of the token in the vocabulary. """       
         return self.encoder.get(token, self.encoder.get(self.unk_token))
 
-
     def _convert_id_to_token(self, id):
         """ return the orgin bpe token according to id"""   
         return self.decoder.get(id)
-
 
     def _convert_tokens_to_string(self, tokens):
         """ return a string according to the list of tokens"""       
@@ -170,15 +223,13 @@ class GPT2Tokenizer():
         text = bytearray([self.byte_decoder[c] for c in text]).decode("utf-8",errors='ignore')
         return text  
 
-
     def encode(self, text):
         """ get the index list of text"""        
         text_id = []
-        bpe_tokens = self._tokenize(text)
+        bpe_tokens = self.tokenize(text)
         for token in bpe_tokens:
             text_id.append(self._convert_token_to_id(token))
         return text_id
-    
 
     def decode(self, ids):
         """ return a string according to the index list of tokens"""
@@ -186,7 +237,6 @@ class GPT2Tokenizer():
         for id_ in ids:
             tokens.append(self._convert_id_to_token(id_))
         return self._convert_tokens_to_string(tokens)
-        
 
     def prepare_for_tokenization(self, text, is_pretokenized=False, **kwargs):
         """ whether to add a whitespace in the front of text """        
@@ -208,7 +258,6 @@ class GPT2Tokenizer():
 
         Returns:
             added_tokens (int): Number of tokens added to the vocabulary
-
         """
         # special_tokens_dict = {'cls_token': '<CLS>'}
         if not special_tokens_dict:
@@ -230,7 +279,6 @@ class GPT2Tokenizer():
 
     def _add_tokens(self, new_tokens, special_tokens=False):
         """
-
         Args:
             new_tokens (list[str]): Token(s) to add in vocabulary.
             special_tokens (bool): Whether or not the tokens should be added as special tokens.
@@ -239,24 +287,34 @@ class GPT2Tokenizer():
             the number of the new added tokens.
         """
         new_tokens = [str(token) for token in new_tokens]
+        print("here:",new_tokens)
 
         tokens_to_add = []
         for token in new_tokens:
+            print(token)
             assert isinstance(token, str)
-            tokens_to_add.append(token)
-            logger.info("Adding %s to the vocabulary ! ", token)
+            if (token != self.unk_token
+                and self._convert_token_to_id(token) == self._convert_token_to_id(self.unk_token)
+                and token not in tokens_to_add
+            ):
+                tokens_to_add.append(token)
+                logger.info("Adding %s to the vocabulary ! ", token)
 
         added_tok_encoder = dict((tok, self.vocab_size + i)for i, tok in enumerate(tokens_to_add))
         added_tok_decoder = {v: k for k, v in added_tok_encoder.items()}
         self.encoder.update(added_tok_encoder)
         self.decoder.update(added_tok_decoder)
+
+        if special_tokens:
+            self.unique_no_split_tokens = sorted(set(self.unique_no_split_tokens).union(set(new_tokens)))
+        else:
+            self.unique_no_split_tokens = sorted(set(self.unique_no_split_tokens).union(set(tokens_to_add)))
         return len(tokens_to_add)
 
     def num_special_tokens_to_add(self, pair: bool = False):
         token_ids_0 = []
         token_ids_1 = []
         return len(self.build_inputs_with_special_tokens(token_ids_0, token_ids_1 if pair else None))
-
 
     def build_inputs_with_special_tokens(self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None):
         """
@@ -349,7 +407,6 @@ class GPT2Tokenizer():
 
         return batch_outputs
 
-
     def prepare_for_model(self,
                           ids,
                           pair_ids=None,
@@ -401,6 +458,7 @@ class GPT2Tokenizer():
 
         return encoded_inputs
 
+
 class CNN_DailyMail_tokenizer(GPT2Tokenizer):
     def prepare_for_model(self,
                           ids,
@@ -412,8 +470,9 @@ class CNN_DailyMail_tokenizer(GPT2Tokenizer):
                           return_overflowing_tokens=False,
                           return_attention_mask=True):
 
-        #pair = bool(pair_ids is not None)
-        #assert (ids is None ) or  (pair_ids is None),"ids and pair_ids can not be None at the same time."
+        # pair = bool(pair_ids is not None)
+        # assert (ids is None ) or  (pair_ids is None),"ids and pair_ids can not be None at the same time."
+
         len_ids = len(ids)
         len_pair_ids = len(pair_ids)
 
@@ -427,20 +486,19 @@ class CNN_DailyMail_tokenizer(GPT2Tokenizer):
         if total_len > max_length-3:
             if len_pair_ids > max_summary_length:
                 pair_ids, pair_overflowing_tokens = self.truncate_sequences(ids=pair_ids,
-                                                              num_tokens_to_remove=len_pair_ids - max_summary_length,
-                                                              truncation_strategy="ONLY_FIRST",
-                                                              direction="RIGHT")
+                                                                            num_tokens_to_remove=len_pair_ids - max_summary_length,
+                                                                            truncation_strategy="ONLY_FIRST",
+                                                                            direction="RIGHT")
                 if len_ids+max_summary_length > max_length-3:
                     ids, ids_overflowing_tokens = self.truncate_sequences(ids=ids,
-                                                              num_tokens_to_remove=(len_ids+max_summary_length) - (max_length-3),
-                                                              truncation_strategy="ONLY_FIRST",
-                                                              direction="RIGHT")
-                
+                                                                          num_tokens_to_remove=(len_ids+max_summary_length) - (max_length-3),
+                                                                          truncation_strategy="ONLY_FIRST",
+                                                                          direction="RIGHT")
             else:
                 ids, ids_overflowing_tokens = self.truncate_sequences(ids=ids,
-                                                              num_tokens_to_remove=total_len - (max_length-3),
-                                                              truncation_strategy="ONLY_FIRST",
-                                                              direction="RIGHT")
+                                                                      num_tokens_to_remove=total_len - (max_length-3),
+                                                                      truncation_strategy="ONLY_FIRST",
+                                                                      direction="RIGHT")
             if return_overflowing_tokens:
                     encoded_inputs["article_overflowing_tokens"] = ids_overflowing_tokens
                     encoded_inputs["highlights_overflowing_tokens"] = pair_overflowing_tokens
@@ -467,27 +525,104 @@ class CNN_DailyMail_tokenizer(GPT2Tokenizer):
                                       return_attention_mask=return_attention_mask)
 
         return encoded_inputs
-    
 
-def Tokenizer(vocab_file = "./pretrain-data/gpt2-vocab.json",merge_file = "./pretrain-data/gpt2-merges.txt",mode="normal"):
+
+class CBT_tokenizer(GPT2Tokenizer):
+
+    def prepare_for_model(self,
+                          ids,
+                          pair_ids=None,
+                          add_special_tokens=True,
+                          max_length=None,
+                          padding=None,
+                          return_overflowing_tokens=False,
+                          return_attention_mask=True,
+                          num_choice=None):
+
+        pair = bool(pair_ids is not None)
+        len_pair_ids = len(pair_ids) if pair else 0
+        input_ids = []
+        attention_mask = []
+        encoded_inputs = {}
+        final_encoded_inputs = {}
+
+        for i in range(num_choice):
+            single_ids = ids[i]
+            len_ids = len(ids)
+            # Compute the total size of the returned encodings
+            total_len = len_ids + len_pair_ids + (self.num_special_tokens_to_add(pair=pair) if add_special_tokens else 0)
+
+            # Truncation: Handle max sequence length
+            if max_length and total_len > max_length:
+
+                ids, overflowing_tokens = self.truncate_sequences(ids=ids,
+                                                                  num_tokens_to_remove=total_len - max_length,
+                                                                  truncation_strategy="ONLY_FIRST",
+                                                                  direction="RIGHT")
+                if return_overflowing_tokens:
+                    encoded_inputs["overflowing_tokens"] = overflowing_tokens
+                    encoded_inputs["num_truncated_tokens"] = total_len - max_length
+
+            if add_special_tokens:
+                sequence = self.build_inputs_with_special_tokens(ids, pair_ids)
+            else:
+                sequence = ids + pair_ids if pair else ids
+
+            # build output dictionary
+            encoded_inputs["input_ids"] = sequence
+
+            # check lengths
+            if max_length is None or len(sequence) > max_length:
+                logger.warning(
+                    "Token indices sequence length is longer than the specified maximum sequence length "
+                    "for this model ({} > {}). Running this sequence through the model will result in "
+                    "indexing errors".format(len(ids), max_length)
+                )
+            # padding
+            if padding or return_attention_mask:
+                encoded_inputs = self.pad(encoded_inputs=encoded_inputs,
+                                          max_length=max_length,
+                                          padding_strategy="MAX_LENGTH",
+                                          return_attention_mask=return_attention_mask)
+
+            input_ids.append(encoded_inputs["input_ids"])
+            attention_mask.append(encoded_inputs["attention_mask"])
+
+        final_encoded_inputs["input_ids"] = input_ids
+        final_encoded_inputs["attention_mask"] = attention_mask
+        return final_encoded_inputs
+
+
+def Tokenizer(vocab_file="./pretrain-data/gpt2-vocab.json", merge_file="./pretrain-data/gpt2-merges.txt", mode="normal"):
     """ use the GPT2Tokenizer"""
     #vocab_file = "./pretrain-data/gpt2-vocab.json"
     #merge_file = "./pretrain-data/gpt2-merges.txt"
     if mode == "normal":
-        tokenizer = GPT2Tokenizer(vocab_file, merge_file,add_prefix_space = False)
+        tokenizer = GPT2Tokenizer(vocab_file, merge_file, add_prefix_space=False)
     elif mode == "cnn_dailymail":
-        tokenizer = CNN_DailyMail_tokenizer(vocab_file,merge_file,add_prefix_space=False)
+        tokenizer = CNN_DailyMail_tokenizer(vocab_file, merge_file, add_prefix_space=False)
+    elif mode == "cbt":
+        tokenizer = CBT_tokenizer(vocab_file, merge_file, add_prefix_space=False)
     else:
         raise ValueError("No Such Mode for {} in src.utils.tokenization.Tokenizer()".format(mode))
     return tokenizer
 
 
 # if __name__=='__main__':
-#     tokenizer = Tokenizer()
-#     text1 = "With almost everything else to make them happy , they wanted one thing : they had no children .This vexed"
-#     text2 = "This is a rather long sequence. It is at least longer than the sequence A."
-#     ids = tokenizer.encode(text1)
-#     print("ids: {}".format(ids))
+    # tokenizer = Tokenizer()
+#     number = tokenizer.add_special_tokens({'cls_token': '[CLS]'})
+#     text = "<|endoftext|>This is a rather long sequence. It is at least longer than the sequence<|endoftext|>"
+    # text = "<|endoftext|>This is a rather long sequence. It is at least longer than the sequence [CLS]<|endoftext|>"
+    # t = tokenizer.encode(text)
+    # print(t)
+    # text1 = "With almost everything else to make them happy" + " " + tokenizer.eos_token
+    # ids = tokenizer.encode(text)
+    # ids_copy = tokenizer.encode_copy(text)
+    # print("ids: {}".format(ids))
+    # print("ids copy: {}".format(ids_copy))
+#     print(tokenizer.encode(text))
+#     print(tokenizer.decode([1279, 91, 437, 1659, 5239, 91, 29]))
+#     print(tokenizer.decode([50256]))
 #     pair_ids = tokenizer.encode(text2)
 #     print("pair_ids: {}".format(pair_ids))
 #     output = tokenizer.prepare_for_model(ids=ids,
