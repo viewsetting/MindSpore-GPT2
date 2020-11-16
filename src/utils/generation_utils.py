@@ -364,8 +364,8 @@ class Sample():
             input_ (Union): list if input is a list containing strs, Tensor with shape (batch_size,seq_length) representing input_mask
         """
         def __init__(self, input_:Union[list,Tensor]):
-            self.input_strs = input_ if type(input_) is str else None
-            self.input_mask = input_ if type(input_) is not str else None
+            self.input_strs = input_ if type(input_) is list else None
+            self.input_mask = input_ if type(input_) is not list else None
             if self.input_strs is not None:
                 self.pos_list = [ len(input_str)-1 for input_str in self.input_strs]
             else:
@@ -887,13 +887,14 @@ class BeamSearch():
             ranker.beam_generate(self.beam_size)
 
         max_beam_index = [np.argmax(score) for score in ranker.prev_scores]
-        max_beams = []
+        max_beams_ids = []
         for batch_idx in range(self.batch_size):
             beam_index = max_beam_index[batch_idx]
-            max_beams.append(ranker.past_ids[batch_idx][beam_index].tolist())
+            max_beams_ids.append(ranker.past_ids[batch_idx][beam_index].tolist())
         
-        max_beams_str = [self.tokenizer.decode(ids[:min(original_len+generate_length,self.seq_length)]) for ids,original_len in zip(max_beams,self.input_str_len_list)]
-        return max_beams_str,max_beams
+        max_beams_str_all = [self.tokenizer.decode(ids[:min(original_len+generate_length,self.seq_length)]) for ids,original_len in zip(max_beams_ids,self.input_str_len_list)]
+        max_beams_str_gen = [self.tokenizer.decode(ids[original_len-max(original_len+generate_length-self.seq_length,0):min(original_len+generate_length,self.seq_length)]) for ids,original_len in zip(max_beams_ids,self.input_str_len_list)]
+        return max_beams_str_gen,max_beams_str_all
             
     class penalty():
         def __init__(self):
@@ -1117,8 +1118,8 @@ class LastTokenPos():
             input_ (Union): list if input is a list containing strs, Tensor with shape (batch_size,seq_length) representing input_mask
         """
         def __init__(self, input_:Union[list,Tensor]):
-            self.input_strs = input_ if type(input_) is str else None
-            self.input_mask = input_ if type(input_) is not str else None
+            self.input_strs = input_ if type(input_) is list else None
+            self.input_mask = input_ if type(input_) is not list else None
             if self.input_strs is not None:
                 self.pos_list = [ len(input_str)-1 for input_str in self.input_strs]
             else:
@@ -1163,6 +1164,13 @@ class GenerationConfig():
                 "generate_length":self.generate_length,
                 "beam_size":self.beam_size
                 }
+    def get_args(self):
+        return self.args
+    def get_arg(self,key):
+        if key.lower() in self.args:
+            return self.args[key.lower()]
+        else:
+            return None
 
 if __name__ == '__main__':
     # s = Sample(None)
