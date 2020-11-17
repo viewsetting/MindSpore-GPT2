@@ -20,3 +20,5 @@ src/finetune_eval_config.py
 **/** 3.sh
 **/** 2.sh
 **/** 2.perl
+finetune_*
+zeroshot_*
