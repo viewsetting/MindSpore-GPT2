@@ -471,7 +471,8 @@ class Sample():
             generate_length = self.generate_length
 
         return_ids_list = [[] for i in range(self.batch_size)]
-        last_token = self.last_token_pos(input_str)
+        _, input_mask, _ = self._tensorize_ids_with_masks(full_str)
+        last_token = self.last_token_pos(input_mask)
 
         for i in range(generate_length):
             #only first input_ids 
