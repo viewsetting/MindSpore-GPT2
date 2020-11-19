@@ -12,7 +12,9 @@ from mindspore import context
 from mindspore.context import ParallelMode
 from mindspore.communication.management import get_group_size
 from mindspore.parallel._utils import _get_device_num, _get_parallel_mode
-from .grad_clip import GRADIENT_CLIP_TYPE, GRADIENT_CLIP_VALUE, ClipGradients
+
+# from .grad_clip import GRADIENT_CLIP_TYPE, GRADIENT_CLIP_VALUE, ClipGradients
+from .clip_grad_utils import clip_grad
 from src.utils.CrossEntropy import CrossEntropyCalculationWithMask
 # from .GPT2ForLambada import GPT2LambadaModel
 # from .GPT2ForCBT import GPT2CBTModel
@@ -22,47 +24,179 @@ from .GPT2ForTranslation import GPT2TranslationModel
 # from .GPT2ForSummarization import GPT2SummarizationModel
 
 
+# grad_scale = C.MultitypeFuncGraph("grad_scale")
+# reciprocal = P.Reciprocal()
+
+# @grad_scale.register("Tensor", "Tensor")
+# def tensor_grad_scale(scale, grad):
+#     return grad * F.cast(reciprocal(scale), F.dtype(grad))
+
+# _grad_overflow = C.MultitypeFuncGraph("_grad_overflow")
+# grad_overflow = P.FloatStatus()
+
+# @_grad_overflow.register("Tensor")
+# def _tensor_grad_overflow(grad):
+#     return grad_overflow(grad)
+
+
+# class GPT2FinetuneCell(nn.Cell):
+#     """
+#     Especifically defined for finetuning where only four inputs tensor are needed.
+#     """
+#     def __init__(self, network, optimizer, scale_update_cell=None):
+#         super(GPT2FinetuneCell, self).__init__(auto_prefix=False)
+#         self.network = network
+#         self.network.set_grad()
+#         self.weights = optimizer.parameters
+#         self.optimizer = optimizer
+#         self.grad = C.GradOperation(get_by_list=True, sens_param=True)
+#         self.reducer_flag = False
+#         self.allreduce = P.AllReduce()
+#         self.parallel_mode = context.get_auto_parallel_context("parallel_mode")
+#         # self.parallel_mode = _get_parallel_mode()
+#         # self.parallel_mode = "stand_alone"
+#         if self.parallel_mode in [ParallelMode.DATA_PARALLEL, ParallelMode.HYBRID_PARALLEL]:
+#             self.reducer_flag = True
+#         self.grad_reducer = None
+#         if self.reducer_flag:
+#             mean = context.get_auto_parallel_context("gradients_mean")
+#             # degree = get_group_size()
+#             degree = _get_device_num()
+#             self.grad_reducer = DistributedGradReducer(optimizer.parameters, mean, degree)
+#         self.is_distributed = (self.parallel_mode != ParallelMode.STAND_ALONE)
+#         self.clip_gradients = ClipGradients()
+#         self.cast = P.Cast()
+#         self.gpu_target = False
+#         if context.get_context("device_target") == "GPU":
+#             self.gpu_target = True
+#             self.float_status = P.FloatStatus()
+#             self.addn = P.AddN()
+#             self.reshape = P.Reshape()
+#         else:
+#             self.alloc_status = P.NPUAllocFloatStatus()
+#             self.get_status = P.NPUGetFloatStatus()
+#             self.clear_before_grad = P.NPUClearFloatStatus()
+#         self.reduce_sum = P.ReduceSum(keep_dims=False)
+#         self.depend_parameter_use = P.ControlDepend(depend_mode=1)
+#         self.base = Tensor(1, mstype.float32)
+#         self.less_equal = P.LessEqual()
+#         self.hyper_map = C.HyperMap()
+#         self.loss_scale = None
+#         self.loss_scaling_manager = scale_update_cell
+#         if scale_update_cell:
+#             self.loss_scale = Parameter(Tensor(scale_update_cell.get_loss_scale(), dtype=mstype.float32),
+#                                         name="loss_scale")
+
+#     def construct(self,
+#                   input_ids,
+#                   input_mask,
+#                   label_ids,
+#                   sens=None):
+#         """
+#         GPT-2 Finetune.
+#         Construct network.
+
+#         Args:
+#             input_ids (Tensor): Source sentence.
+#             input_mask (Tensor): Source padding mask.
+#             label_ids (Tensor): Target sentence.
+#             sens (Tensor): Loss sen.
+
+#         Returns:
+#             Tuple[Tensor, Tensor, Tensor], loss, overflow, sen.
+#         """
+
+#         weights = self.weights
+#         init = False
+#         loss = self.network(input_ids,
+#                             input_mask,
+#                             label_ids)
+#         if sens is None:
+#             scaling_sens = self.loss_scale
+#         else:
+#             scaling_sens = sens
+
+#         if not self.gpu_target:
+#             init = self.alloc_status()
+#             clear_before_grad = self.clear_before_grad(init)
+#             F.control_depend(loss, init)
+#             # self.depend_parameter_use(clear_before_grad, scaling_sens)
+#         grads = self.grad(self.network, weights)(input_ids,
+#                                                  input_mask,
+#                                                  label_ids,
+#                                                  self.cast(scaling_sens,
+#                                                            mstype.float32))
+#         grads = self.hyper_map(F.partial(grad_scale, scaling_sens), grads)
+#         grads = self.clip_gradients(grads, GRADIENT_CLIP_TYPE, GRADIENT_CLIP_VALUE)
+#         # grads = self.hyper_map(F.partial(clip_grad, GRADIENT_CLIP_TYPE, GRADIENT_CLIP_VALUE), grads)
+#         if self.reducer_flag:
+#             # apply grad reducer on grads
+#             grads = self.grad_reducer(grads)
+#         # get the overflow buffer
+#         if not self.gpu_target:
+#             flag = self.get_status(init)
+#             flag_sum = self.reduce_sum(init, (0,))
+#             F.control_depend(grads, flag)
+#             F.control_depend(flag, flag_sum)
+#         else:
+#             flag_sum = self.hyper_map(F.partial(_grad_overflow), grads)
+#             flag_sum = self.addn(flag_sum)
+#             # convert flag_num to scalar
+#             flag_sum = self.reshape(flag_sum, (()))
+#         if self.is_distributed:
+#             flag_reduce = self.allreduce(flag_sum)
+#             cond = self.less_equal(self.base, flag_reduce)
+#         else:
+#             cond = self.less_equal(self.base, flag_sum)
+#         overflow = cond
+#         if sens is None:
+#             overflow = self.loss_scaling_manager(self.loss_scale, cond)
+#         if overflow:
+#             succ = False
+#         else:
+#             succ = self.optimizer(grads)
+#         ret = (loss, cond, scaling_sens)
+#         return F.depend(ret, succ)
+
+
+GRADIENT_CLIP_TYPE = 1
+GRADIENT_CLIP_VALUE = 1.0
 grad_scale = C.MultitypeFuncGraph("grad_scale")
 reciprocal = P.Reciprocal()
-
 @grad_scale.register("Tensor", "Tensor")
 def tensor_grad_scale(scale, grad):
-    return grad * F.cast(reciprocal(scale), F.dtype(grad))
+    return grad * reciprocal(scale)
 
 _grad_overflow = C.MultitypeFuncGraph("_grad_overflow")
 grad_overflow = P.FloatStatus()
-
 @_grad_overflow.register("Tensor")
 def _tensor_grad_overflow(grad):
     return grad_overflow(grad)
-
 
 class GPT2FinetuneCell(nn.Cell):
     """
     Especifically defined for finetuning where only four inputs tensor are needed.
     """
     def __init__(self, network, optimizer, scale_update_cell=None):
+
         super(GPT2FinetuneCell, self).__init__(auto_prefix=False)
         self.network = network
         self.network.set_grad()
         self.weights = optimizer.parameters
         self.optimizer = optimizer
-        self.grad = C.GradOperation(get_by_list=True, sens_param=True)
+        self.grad = C.GradOperation(get_by_list=True,
+                                    sens_param=True)
         self.reducer_flag = False
         self.allreduce = P.AllReduce()
         self.parallel_mode = context.get_auto_parallel_context("parallel_mode")
-        # self.parallel_mode = _get_parallel_mode()
-        # self.parallel_mode = "stand_alone"
         if self.parallel_mode in [ParallelMode.DATA_PARALLEL, ParallelMode.HYBRID_PARALLEL]:
             self.reducer_flag = True
         self.grad_reducer = None
         if self.reducer_flag:
             mean = context.get_auto_parallel_context("gradients_mean")
-            # degree = get_group_size()
-            degree = _get_device_num()
+            degree = get_group_size()
             self.grad_reducer = DistributedGradReducer(optimizer.parameters, mean, degree)
         self.is_distributed = (self.parallel_mode != ParallelMode.STAND_ALONE)
-        self.clip_gradients = ClipGradients()
         self.cast = P.Cast()
         self.gpu_target = False
         if context.get_context("device_target") == "GPU":
@@ -90,19 +224,7 @@ class GPT2FinetuneCell(nn.Cell):
                   input_mask,
                   label_ids,
                   sens=None):
-        """
-        GPT-2 Finetune.
-        Construct network.
-
-        Args:
-            input_ids (Tensor): Source sentence.
-            input_mask (Tensor): Source padding mask.
-            label_ids (Tensor): Target sentence.
-            sens (Tensor): Loss sen.
-
-        Returns:
-            Tuple[Tensor, Tensor, Tensor], loss, overflow, sen.
-        """
+        """Bert Finetune"""
 
         weights = self.weights
         init = False
@@ -118,19 +240,16 @@ class GPT2FinetuneCell(nn.Cell):
             init = self.alloc_status()
             clear_before_grad = self.clear_before_grad(init)
             F.control_depend(loss, init)
-            # self.depend_parameter_use(clear_before_grad, scaling_sens)
+            self.depend_parameter_use(clear_before_grad, scaling_sens)
         grads = self.grad(self.network, weights)(input_ids,
                                                  input_mask,
                                                  label_ids,
                                                  self.cast(scaling_sens,
                                                            mstype.float32))
         grads = self.hyper_map(F.partial(grad_scale, scaling_sens), grads)
-        grads = self.clip_gradients(grads, GRADIENT_CLIP_TYPE, GRADIENT_CLIP_VALUE)
-        # grads = self.hyper_map(F.partial(clip_grad, GRADIENT_CLIP_TYPE, GRADIENT_CLIP_VALUE), grads)
+        grads = self.hyper_map(F.partial(clip_grad, GRADIENT_CLIP_TYPE, GRADIENT_CLIP_VALUE), grads)
         if self.reducer_flag:
-            # apply grad reducer on grads
             grads = self.grad_reducer(grads)
-        # get the overflow buffer
         if not self.gpu_target:
             flag = self.get_status(init)
             flag_sum = self.reduce_sum(init, (0,))
@@ -139,7 +258,6 @@ class GPT2FinetuneCell(nn.Cell):
         else:
             flag_sum = self.hyper_map(F.partial(_grad_overflow), grads)
             flag_sum = self.addn(flag_sum)
-            # convert flag_num to scalar
             flag_sum = self.reshape(flag_sum, (()))
         if self.is_distributed:
             flag_reduce = self.allreduce(flag_sum)
@@ -153,7 +271,7 @@ class GPT2FinetuneCell(nn.Cell):
             succ = False
         else:
             succ = self.optimizer(grads)
-        ret = (loss, cond, scaling_sens)
+        ret = (loss, cond)
         return F.depend(ret, succ)
 
 
