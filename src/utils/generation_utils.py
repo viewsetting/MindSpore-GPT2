@@ -67,6 +67,7 @@ class TopKTopP_Filter(nn.Cell):
         self.safty_mask = Tensor(np.concatenate((self.safty_mask_left, 
                                                  self.safty_mask_right), axis=1), 
                                                  dtype=mstype.float32)
+        self.NINF = float(-1e6)
         
         self.expand_dims = P.ExpandDims()
         assert self.temp > 0.0, 'temperature must be positive'
@@ -89,19 +90,24 @@ class TopKTopP_Filter(nn.Cell):
             else:
                 last_value = values[::, -1]
                 last_value = self.expand_dims(last_value, 1) # replace values[::, -1::]
-            binary_mask = distribution >= last_value
+            binary_mask = distribution < last_value
             mask = self.cast(binary_mask, mstype.float32)
-            distribution = distribution * mask
+            #get neg inf mask
+            mask = mask * self.NINF
+            #add to distribution
+            distribution = distribution + mask
+            #sort distribution
             distribution, sorted_indices = self.topK(distribution, self.vocab_size)
         else:
+            #sort distribution only
             distribution, sorted_indices = self.topK(distribution, self.vocab_size)
 
         # Topp sample
         if self.p < 1.0:
             # distribution = self.softmax(distribution)
-            cumsum = self.cumsum(distribution, 1)
+            cumsum = self.cumsum(P.Softmax()(distribution), 1)
 
-            # calculate remove indices mask, 1 for remove_indices
+            # calculate remove indices mask, 1 for emove_indices
             # safty_mask: 0 for min_tokens_to_keep, multiply with indices_to_remove, add more 0.
             index_remove_binary = cumsum > self.p
             index_to_remove = self.cast(index_remove_binary, mstype.float32)
@@ -434,7 +440,7 @@ class Sample():
 
 
 
-    def generate(self, input_str=None, generate_length=None):
+    def generate(self, input_str=None,input_ids=None,input_mask=None, generate_length=None):
         """
         base function for text generation given a batch-size list of str or str itself (when demo mode is on)
         
@@ -547,264 +553,9 @@ class Sample():
     
 
 
-    def generate_for_CNN_DAILYMAIL(self, input_ids, generate_length=100, select_sentence=0, TL_DR=True,tldr_str="TL;DR:"):
-
-        """
-        Args
-            input_ids(Tennor): input_ids(shape: (self.batch_size,s self.eq_length)) of dataset which is sampled from mindrecord
-            generate_length(int): tokens to generate
-            select_sentence(int): number of leading sentences in generation to be selected for hypothesis string.
-                            0 for return full generation, if there are less sentences in generation, full generation will
-                            be returned, either.
-            TL_DR(bool): True for one "TL,DR" token padded in article, False for no.
     
-        Return:
-            generated_summary: generated string of the model
-            summary_str: summary string in dataset as label or reference string
-        """
 
-        article_str, summary_str = self._extract_string_from_tensor(
-            input_ids, mode="pair")
-        
-
-        generated_summary_list= [""] * self.batch_size
-
-        # tldr_str = "TL;DR:"
-        # pad a <TL,DR;> token(<EOS>) after the string of Article.
-        if TL_DR:
-            for article_idx in range(self.batch_size):
-                article_str[article_idx]+=(" "+tldr_str)
-        
-        # print("[DEBUG INFO] Sample.generate_for_CNN_DAILYMAIL article_str:")
-        # print(article_str)
-
-        generate_str_list, _ = self.generate(
-            input_str=article_str, generate_length=generate_length)
-
-        # print("[DEBUG INFO] Sample.generate_for_CNN_DAILYMAIL generate_str_list:")
-        # print(generate_str_list)
-        
-        for article_idx in range(self.batch_size):
-            generate_str = generate_str_list[article_idx]
-            generated_summary = ""
-            
-            if select_sentence > 0:
-                # check if there are number of select_sentence of sentences in generated text,if not enough, it will return full generated string
-                len_generate_str = len(generate_str)
-                search_index = -1
-                for i in range(select_sentence):
-                    search_index = generate_str.find('.',search_index+1)
-                    if search_index == -1 or search_index >= len_generate_str:
-                        search_index = len_generate_str
-                        break
-
-                # increase search_index to add period token('.') if search_index does not overflow.
-                search_index = search_index+1 if search_index < len_generate_str else len_generate_str
-                generated_summary = generate_str[:search_index]
-                if self.tokenizer.eos_token in generated_summary:
-                    cut_pos = generated_summary.find(self.tokenizer.eos_token,0)
-                    generated_summary = generated_summary[:cut_pos]
-
-            else:
-                generated_summary = generate_str
-
-            #if all of str hs been clipped, restore it to beginning state.
-            if generated_summary == '':
-                generated_summary = generate_str  
-            
-            #empty str check
-            if generated_summary == '':
-                generated_summary = '<empty>'
-            generated_summary_list[article_idx] = generated_summary
-
-            # print("[DEBUG INFO] Sample.generate_for_CNN_DAILYMAIL debugging info:\nGENERATED_SUMMARY:")
-            # print(generated_summary_list[article_idx])
-            # print(summary_str[article_idx])
-
-        return generated_summary_list, summary_str  # Hypo and Ref
-
-    def generate_for_Translation(self, input_ids, use_hint=True, select_first_sentence=True, max_generate_length=150):
-
-        """
-        Args
-            input_ids (Tensor): input_ids(shape: (self.batch_size, self.seq_length) of dataset which is sampled from mindrecord
-            use_hint (bool): wheather use the "=" hint to help infer in Translation task (english sentence = french sentence). Default: True.
-            select_first_sentence (bool): wheather use the first generated sentence as the translation result. Default: True.
-            max_generate_length: the max token length of generation sentence. Default: 150.
     
-        Return:
-            final_translation_list (List[String]): the final translation results, shape [batch_size].
-            ref_str_list (List[String]): the traget/reference translation results, shape [batch_size].
-        """
-
-        self.early_stop = True
-        source_str_list, ref_str_list = self._extract_string_from_tensor(input_ids, mode="pair")
-
-        final_translation_list= [""] * self.batch_size
-
-        if use_hint:
-            for index in range(self.batch_size):
-                source_str_list[index] += " =" # now source_str is "english sentence ="
-
-        translation_str_list, _ = self.generate(input_str=source_str_list, generate_length=max_generate_length)
-        
-        for index in range(self.batch_size):
-            generate_str = translation_str_list[index]
-            predict_tarnslation = ""
-            
-            # Acording to the GPT2 paper, the select_first_sentence will be set "True"
-            if select_first_sentence:
-                # check if there are number of select_sentence of sentences in generated text,if not enough, it will return full generated string
-                search_index = generate_str.find('.', 0, len(generate_str))
-                if search_index == -1:
-                    search_index = len(generate_str) # not find "."
-                else:
-                    search_index = search_index + 1 # find "." successfully
-                predict_tarnslation = generate_str[:search_index]
-            else:
-                predict_tarnslation = generate_str
-
-            if predict_tarnslation == '':
-                predict_tarnslation = '<empty>'
-            
-            final_translation_list[index] = predict_tarnslation
-
-        return final_translation_list, ref_str_list  # Hypo and Ref
-
-    def generate_for_LAMBADA(self, input_ids,logits,max_generate_length=3,max_iterations=20):
-        """
-        Args:
-            input_ids(Tennor): input_ids(shape: (self.batch_size,self.seq_length)) of dataset which is sampled from mindrecord
-            logits: (batch_size,seq_length,vocab_size) (8,1024,50257)
-            max_generate_length(int): the number of tokens to generate
-    
-        Return:
-            generated_last_word: generated the last word of lambada
-        """
-
-        self.early_stop = False
-        self.return_ids = True
-        self.topk_num = 1
-        self.topp_prob = 1.0
-        source_str = self._extract_string_from_tensor(input_ids,mode="single")
-        
-        # True if generated
-        generate_batch_flag = [False]*self.batch_size
-
-        # All of the batches are generated 
-        all_true = [True]*self.batch_size
-
-        # lastword string list
-        # final_generations = [""*self.batch_size]        # [""*bsz]
-        final_generations = ["" for _ in range(self.batch_size)]        # ['','',',...'']
-
-        MAX_NUM = 99999
-
-        stop_word = [self.tokenizer.eos_token,'.',',','!','?','"',"~"]
-       # tokenizer = Tokenizer(vocab_file="utils/pretrain-data/gpt2-vocab.json", merge_file="utils/pretrain-data/gpt2-merges.txt")
-        # source_str = self.extract_string_from_tensor(input_ids, mode="single")
-        lastword_start_pos_ = get_lastword_range(input_ids = input_ids,config=self.model_config,tokenizer=self.tokenizer)     # [(left_pos,right_pos)] -> batch_size for list length
-        lastword_start_pos = []  
-        for item in lastword_start_pos_:
-            lastword_start_pos.append(item[0])
-
-        logits = extract_logits(logits = logits, seq_pos=lastword_start_pos)  #(8,1,50257)
-        # final_logits = np.argmax(output_logits,axis = -1)          #(8,) [ids of list]
-        topk = P.TopK(sorted=True)
-        _ , sorted_ids = topk(logits,max_iterations)
-        sorted_ids = sorted_ids.asnumpy()                       # [batch_size,1,max_iterations]
-        sorted_ids = sorted_ids.reshape((-1,max_iterations))    # [batch_size,max_iterations]
-        sorted_ids = sorted_ids.T                               # [max_iterations,batch_size]
-        sorted_ids = sorted_ids.tolist()                        # [[121,3,123,41],[3123,3123,43,12],...,]  (100,8)
-
-        for i in range(max_iterations):
-            # source_str +=
-            ids = sorted_ids[i]
-            ids_str = [ self.tokenizer.decode([x]) for x in ids]
-            cat_str = [x+y for x,y in zip(source_str,ids_str)]
-            generate_ids_list = self.generate(input_str=cat_str, generate_length=2) # [[23,34,45,78,90],[34,56,79,89,667] ]
-            # print("generate_ids_list :",generate_ids_list.shape)
-            cat_ids_list = [[x]+y for x,y in zip(ids,generate_ids_list)]
-            res_str_list = [self.tokenizer.decode(word) for word in cat_ids_list]       # [" hel lo <|endoftext|>","word ",...]
-            # print("===========[DEBUG] generate_for_LAMBADA res_str_list ===== iteration:{}==========".format(i))
-            print(res_str_list)
-            
-            # res_str_list = [word.lstrip().rstrip() for word in res_str_list]            # ["hel lo","word",...]
-            for j in range(self.batch_size):
-                if generate_batch_flag[j]:
-                    continue
-                
-                eos_pos = min( res_str_list[j].find(word) if res_str_list[j].find(word) >=0 else MAX_NUM for word in stop_word)
-                # print("EOS_pos: ",eos_pos )
-                # eos_pos = min(res_str_list[j].find('.'),res_str_list[j].find(self.tokenizer.eos_token),res_str_list[j].find('.'),)
-                if eos_pos == MAX_NUM:
-                    continue    
-                else:
-                    res_str_list[j] = res_str_list[j][:eos_pos]
-                
-                res_str_list[j] = res_str_list[j].lstrip().rstrip()
-                print(res_str_list[j])
-
-                if res_str_list[j].find(" ") == -1 :     # don't have space in a word, set True
-                    if res_str_list[j] == "":
-                        continue
-                    
-                    generate_batch_flag[j] = True
-                    final_generations[j] = res_str_list[j] 
-
-            # print(generate_batch_flag)
-            if all_true == generate_batch_flag:
-                # print("Success")
-                break
-
-        return final_generations
-
-
-    def generate_for_Readcomprehension(self, input_ids, generate_length=0, answer_flag=True):
-
-        """
-        Args
-            input_ids(Tennor): input_ids(shape: (self.batch_size,s self.eq_length)) of dataset which is sampled from mindrecord
-            generate_length(int): tokens to generate
-            answer_flag(bool): True for one "TL,DR" token padded in article, False for no.
-
-        Return:
-            pred_answer: generated string of the model
-            answer_str: answer string in dataset as label 
-        """
-
-        passage_str, answer_str = self._extract_string_from_tensor(
-            input_ids, mode="pair")
-
-        passage = passage_str[:]
-        # print("============  GENERATION DEBUG  =============")
-        # print("PASSAGE:\n{}\n".format(passage_str))
-        #
-        if answer_flag:
-           for index in range(self.batch_size):
-               passage_str[index] += self.tokenizer.eos_token #now passage string is "passage string A:"
-
-        generate_str, full_str = self.generate(input_str=passage_str, generate_length=generate_length)
-        pred_answer = []
-        # print("generate_str:{}".format(len(generate_str)))
-        for batch_id in range(self.batch_size):
-            # print("batch_id:{}".format(batch_id))
-            new_str = generate_str[batch_id].replace('<|endoftext|>','')
-            index = new_str.find('.')
-            if index != -1:
-                pred_answer += [new_str[1:index]] # 1 represents skip the space in the beginning of the sentence
-            else:
-                pred_answer += [new_str]
-                
-            # if index != -1:
-            #     pred_answer += [new_str[1:index]] # 1 represents skip the space in the beginning of the sentence
-            # else:
-            #     pred_answer += [new_str]
-
-        # print("F_PASSAGE:\n{}\n".format(full_str))
-        # print("G_PASSAGE:\n{}".format(passage_str))
-        # print("=============================================")
-        return passage, pred_answer, answer_str
 
 class BeamSearch():
     """
