@@ -1,8 +1,10 @@
 {
-    "generate_mode":"beam",
-    "topk":2,
-    "topp":1,
-    "temperature":1.0,
+    "generate_mode":"sample",
+    "topk":10,
+    "topp":0.5,
+    "temperature":0.8,
     "generate_length":100,
-    "beam_size":3
+    "beam_size":3,
+    "tldr": true,
+    "tldr_str":"TL;DR:"
 }
