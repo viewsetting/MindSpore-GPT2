@@ -5,9 +5,9 @@ import mindspore.nn as nn
 from mindspore.ops import operations as P
 from mindspore import Tensor, Model, Parameter
 from mindspore import dtype as mstype
-from .extract_logits_lambada import extract_logits
-from .tensor_manipulations import extract_single_token_logits,tensorize_ids_with_masks,add_last_token_mask,get_next_one_pos
+from .tensor_manipulations import extract_single_token_logits,tensorize_ids_with_masks,add_last_token_mask,get_next_one_pos,add_last_token
 from mindspore.context import get_context
+from .tokenization import GPT2Tokenizer
 import json
 
 INF = 1. * 1e9
@@ -18,27 +18,23 @@ class TopKTopP_Filter(nn.Cell):
     top K sampling along with top P sampling
 
     Args:
-        batch_size and vocab_size of model
-        k for Top-K sampling and p for Top-P a.k.a. Necleus Sampling
-        min_tokens_to_keep: a number for a guareented generation
+        batch_size and vocab_size of model, (int).
+        k (int): Parameter for Top-K sampling, k should be in range of [0,vocab_size]. 0 for no filter for TopK sampling(do nothing). Default: 0.
+        p (float): Parameter for Top-P sampling a.k.a. Necleus Sampling, p is in between 0.0 and 1.0. Default: 1.0, Optional.
+        temperature: param for generation, greater if generation more diverse. Default: 1.0, Optional.
+        min_tokens_to_keep: a number for a guareented generation. Default: 1, Optional.
+        fp16: True for open float16 optimization. Defalut: False, Optional.
 
-    Inputs:
-        distribution(Tensor): with shape (batch_size,vocab_size)
-    
-    Returns:
-        distribution(Tensor): with shape(batch_size, vocab_size), masked logits
-        sorted_indexes(Tensor or None): Tensor with shape(batch_size,vocab_size) or None if do no sampling
-
-    if k = 0, sorted_indexes will be None
     """
 
     def __init__(self,
-                 batch_size,
-                 vocab_size,
-                 k=0,
-                 p=1.0,
-                 temperature=1.0,
-                 min_tokens_to_keep=1):
+                 batch_size:int,
+                 vocab_size:int,
+                 k:int=0,
+                 p:float=1.0,
+                 temperature:float=1.0,
+                 min_tokens_to_keep:int=1,
+                 fp16:bool=False):
         super(TopKTopP_Filter, self).__init__()
 
         self.topK = P.TopK(sorted=True)
@@ -47,7 +43,9 @@ class TopKTopP_Filter(nn.Cell):
         self.min_tokens_to_keep = min_tokens_to_keep
         self.k = k
         self.p = p
-        self.temp = float(temperature)
+        self.temp = temperature
+        self.fp16 = fp16
+
         self.cumsum = P.CumSum()
         
         self.onehot = P.OneHot()
@@ -59,13 +57,13 @@ class TopKTopP_Filter(nn.Cell):
         self.on_value = Tensor(1.0, mstype.float32)
         self.off_value = Tensor(0.0, mstype.float32)
         self.softmax = P.Softmax()
-        self.safty_mask_left = np.zeros(
+        self.safety_mask_left = np.zeros(
             (batch_size, min_tokens_to_keep), dtype=float)
-        self.safty_mask_right = np.ones((batch_size, 
+        self.safety_mask_right = np.ones((batch_size, 
                                          vocab_size-min_tokens_to_keep), 
                                          dtype=float)
-        self.safty_mask = Tensor(np.concatenate((self.safty_mask_left, 
-                                                 self.safty_mask_right), axis=1), 
+        self.safety_mask = Tensor(np.concatenate((self.safety_mask_left, 
+                                                 self.safety_mask_right), axis=1), 
                                                  dtype=mstype.float32)
         self.NINF = float(-1e6)
         
@@ -76,10 +74,23 @@ class TopKTopP_Filter(nn.Cell):
             assert self.min_tokens_to_keep <= self.k, 'K must be larger than or equal to min_token_to_keep for top p sampling'
 
     def construct(self, distribution: Tensor):
-        distribution = self.softmax(distribution)
+        """
+        Inputs:
+        distribution(Tensor): with shape (batch_size,vocab_size)
+    
+        Returns:
+            distribution(Tensor): with shape(batch_size, vocab_size), masked logits
+            sorted_indexes(Tensor or None): Tensor with shape(batch_size,vocab_size) or None if do no sampling
+
+            if k = 0, sorted_indexes will be None.
+
+        """
+        #distribution = self.softmax(distribution)
         if self.temp != 1.0:
             distribution = distribution / self.temp
 
+        if self.fp16 == True:
+            distribution = self.cast(distribution,mstype=mstype.float16)
         values, indices = self.topK(distribution, self.k)
         sorted_indices = None
 
@@ -91,7 +102,7 @@ class TopKTopP_Filter(nn.Cell):
                 last_value = values[::, -1]
                 last_value = self.expand_dims(last_value, 1) # replace values[::, -1::]
             binary_mask = distribution < last_value
-            mask = self.cast(binary_mask, mstype.float32)
+            mask = self.cast(binary_mask, mstype.float16 if self.fp16 else mstype.float32)
             #get neg inf mask
             mask = mask * self.NINF
             #add to distribution
@@ -102,20 +113,22 @@ class TopKTopP_Filter(nn.Cell):
             #sort distribution only
             distribution, sorted_indices = self.topK(distribution, self.vocab_size)
 
+        distribution = self.cast(distribution,mstype.float32)
+        sorted_indices = self.cast(sorted_indices,mstype.int32)
         # Topp sample
         if self.p < 1.0:
             # distribution = self.softmax(distribution)
-            cumsum = self.cumsum(P.Softmax()(distribution), 1)
+            cumsum_distribution = self.cumsum(P.Softmax()(distribution), 1)
 
-            # calculate remove indices mask, 1 for emove_indices
+            # calculate remove indices binary mask, 1 for index to be removed
             # safty_mask: 0 for min_tokens_to_keep, multiply with indices_to_remove, add more 0.
-            index_remove_binary = cumsum > self.p
-            index_to_remove = self.cast(index_remove_binary, mstype.float32)
-            index_to_remove = index_to_remove * self.safty_mask
+            index_to_remove_binaryMask = cumsum_distribution > self.p
+            index_to_remove = self.cast(index_to_remove_binaryMask, mstype.float32)
+            index_to_remove = index_to_remove * self.safety_mask
 
             # get masked distribution
             remove_distribution = distribution * index_to_remove
-            # substract to remove from distribution
+            # substract logits of removed indices of distribution
             distribution = distribution - remove_distribution
 
         return distribution, sorted_indices
@@ -143,19 +156,19 @@ class Sample():
     """
 
     def __init__(self,
-                 decoder,
+                 decoder:Model,
                  model_config=None,
-                 generate_length=1,
-                 tokenizer=None,
-                 topk_num=0,
-                 topp_prob=1.0,
-                 temperature=1.0,
-                 min_tokens_to_keep=1,
-                 early_stop=False,
-                 demo_mode=False,
-                 return_ids=False,
-                 return_last_token_logits=False,
-                 append_eos=False):
+                 generate_length:int=1,
+                 tokenizer:Optional[GPT2Tokenizer]=None,
+                 topk_num:int=0,
+                 topp_prob:float=1.0,
+                 temperature:float=1.0,
+                 min_tokens_to_keep:int=1,
+                 early_stop:bool=False,
+                 demo_mode:bool=False,
+                 return_ids:bool=False,
+                 return_last_token_logits:bool=False,
+                 append_eos:bool=False):
 
        
         assert model_config is not None, 'Config is a must for sampling.'
@@ -272,6 +285,19 @@ class Sample():
                 return source_list[0]
             else:
                 return source_list
+        elif mode == "full":
+            for batch_idx in range(self.batch_size):
+                sentence_tensor = input_ids[batch_idx]
+                sentence_list = sentence_tensor.asnumpy().tolist()
+
+                sentence = self.tokenizer.decode(sentence_list)
+                source_start = 0
+                source_end = sentence.find(eos_text, 0)
+                source_list[batch_idx] = sentence[source_start:source_end]
+            if self.batch_size == 1 and self.demo_mode is True:
+                return source_list[0]
+            else:
+                return source_list
         
         else:
             raise ValueError('mode:{} not supported.'.format(mode))
@@ -345,17 +371,6 @@ class Sample():
             word_index_2D = Tensor(select_word_merge, dtype=mstype.int32)
             real_selected_word_ids = P.GatherNd()( real_word_index,word_index_2D)
             #Tensor shape: (batch_size,)
-
-        # On GPU it behaves well but on Ascend it glitches in FP16 mode, and GPU (CUDA) has not supported mindspore.ops.Gather so far.
-        # elif self.device_target == "GPU":
-        #     float_real_index = self.cast(real_word_index, mstype.float32)
-        #     result = self.reshape(self.onehot(
-        #             select_word, self.vocab_size, self.on_value, self.off_value), (self.batch_size, self.vocab_size))
-
-        #     _real_index = self.cumsum(result*float_real_index, 1)[::, -1::]
-        #     real_index = self.cast(_real_index, mstype.int32)
-        #     real_selected_word_ids = self.reshape(
-        #             real_index, (-1,))  # Tensor shape: (batch_size,)
         else:
             raise NotImplementedError('CPU and other backend types have not been supported yet')
 
@@ -452,11 +467,25 @@ class Sample():
             generate_str: string generated by the model
             full_str: input_str appended with generate_str
         """
+
+        #check for tokenizer if input_str is given
         if input_str is not None:
             assert self.tokenizer is not None, 'if choose to give input_str, a tokenizer is necessary.'
-        generate_str = [""] * self.batch_size      
         
-        if self.batch_size == 1 and self.demo_mode:
+        #initiate generate_str for record generations for each batch
+        #generate_str = [""] * self.batch_size
+
+        #check if both tensor exists
+        if input_ids is not None:
+            assert input_mask is not None,'if input_ids is given, input_mask is required either.'
+        
+        #warning if all params are passed through
+        if input_str is not None and input_ids is not None and input_mask is not None:
+            print('[WARNING] Sample.generate got input_str, input_ids and input_mask, choose input_str as default for input')      
+        
+        #type check for demo_mode: 1 batch, input_str is not None and initiate full_str as input_str
+        if self.batch_size == 1 and self.demo_mode == True:
+            assert input_str is not None,"demo mode should have input str"
             # type check
             if type(input_str) is list:
                 assert type(input_str[0]) is str,"type of input_str is {}, which should be str instead.".format(type(input_str[0]))
@@ -464,9 +493,8 @@ class Sample():
                     print("[WARNING] Sample.generate: length of input_str is larger than 1, choose input_str[0] as input_str.")
                 input_str = input_str[0]
             assert type(input_str) is str,"type of input_str is {}, which should be str instead.".format(type(input_str))
-            full_str = [input_str]
-        else:
-            full_str = input_str
+            input_str = [input_str]
+        
         
 
         if generate_length is not None:
@@ -477,18 +505,26 @@ class Sample():
             generate_length = self.generate_length
 
         return_ids_list = [[] for i in range(self.batch_size)]
-        _, input_mask, _ = self._tensorize_ids_with_masks(full_str)
+
+        if input_ids is None and input_mask is None:
+            input_ids, input_mask,_ = self._tensorize_ids_with_masks(input_str)
+        else:
+            if input_str is None:
+                if input_ids is not None:
+                    input_str = self._extract_string_from_tensor(input_ids,mode="full")
         last_token = self.last_token_pos(input_mask)
+
 
         for i in range(generate_length):
             #only first input_ids 
-            input_ids, input_mask, len_str = self._tensorize_ids_with_masks(full_str)
-            early_stop_mask = [0] * self.batch_size    
+            #input_ids, input_mask, len_str = self._tensorize_ids_with_masks(full_str)
+            #get index of last_token in iteration i for different batch may have different length 
+            last_token_pos_list = last_token.get_pos(shift=i)
+            early_stop_mask = [0] * self.batch_size
+            
             
             #raw, unsorted logits(distribution) of next word
             logits = self.decoder.predict(input_ids, input_mask)
-            #get index of last_token in iteration i for different batch may have different length 
-            last_token_pos_list = last_token.get_pos(shift=i)
 
             if self.return_last_token_logits is True:
                 if i == 0:
@@ -499,17 +535,19 @@ class Sample():
                     return_last_logits = P.Concat(axis=1)((return_last_logits,
                                                           extract_single_token_logits(logits, last_token_pos_list)))
             
-            nextword_distribution = self.reshape(logits[0, len_str[0]-1:len_str[0]:1, ::], (1, -1))
+            nextword_distribution = self.reshape(logits[0, last_token_pos_list[0]:last_token_pos_list[0]+1:1, ::], (1, -1))
 
             # stack up nextword_distribution if batch_size is larger than 1
             if self.batch_size > 1:
                 for batch_idx in range(1, self.batch_size):
                         nextword_distribution_rest = self.reshape(
-                            logits[batch_idx, len_str[batch_idx]-1:len_str[batch_idx]:1, ::], (1, -1))
+                            logits[batch_idx, last_token_pos_list[batch_idx]:last_token_pos_list[batch_idx]+1:1, ::], (1, -1))
                         nextword_distribution = self.concat((nextword_distribution, nextword_distribution_rest))
 
             #get filtered and sorted distribution with sorted real index for restore real next word index afterwhile
             sorted_distribution, real_index = self.filter_distribution(nextword_distribution)
+
+            #print("[DEBUG] sorted_distribution: {},  real_index: {}".format(sorted_distribution,real_index))
             
             #get sampled index of sorted logits(distribution)
             word_index = self._sample_from_distribution(sorted_distribution)
@@ -517,6 +555,8 @@ class Sample():
             #restore real next word index in unsorted, raw logits and convert it to list
             real_next_word_index = self._get_real_word(word_index,real_index) # Tensor (batch_size,)
             real_next_word_index_list = real_next_word_index.asnumpy().tolist()
+
+            append_ids = []
 
             # tokenizer.decode and early_stop (if all batched generates a EOS, then it is time to say goodbye)
             for batch_idx in range(self.batch_size):
@@ -529,21 +569,38 @@ class Sample():
                 if early_stop_mask[batch_idx] == 1 and self.early_stop is True:
                     continue
                 
-                next_word_str = self.tokenizer.decode([next_word_index])
+                #next_word_str = self.tokenizer.decode([next_word_index])
                 return_ids_list[batch_idx].append(next_word_index)
-                full_str[batch_idx] += next_word_str
-                generate_str[batch_idx] += next_word_str
+                append_ids.append(next_word_index)
+            
+            #print("[DEBUG] appended_ids: {}",append_ids)
+                #full_str[batch_idx] += next_word_str
+                #generate_str[batch_idx] += next_word_str
             
             # check early_stop mask at the end of each loop
             if 0 not in early_stop_mask:
                 break
-        
+            input_ids,input_mask = add_last_token(input_ids,input_mask,overflow_strategy="shift",append_ids=append_ids,next_token_pos=last_token.get_pos(shift=i+1))
+            #print("[DEBUG] input_ids: {}, input_mask: {}".format(input_ids[0],input_mask[0]))
+        #add str to full str
+        generate_str = ["" for _ in range(self.batch_size)]
+        full_str = ["" for _ in range(self.batch_size)]
+        text_cnt = 0
+        for text_ids in return_ids_list:
+            text = self.tokenizer.decode(text_ids)
+            #print("[DEBUG] text_ids: {}, text: {}".format(text_ids,text))
+            generate_str[text_cnt]=text
+            text_cnt += 1
+            #print("[DEBUG] generate_str: {}".format(generate_str))
+        for batch_idx in range(self.batch_size):
+            full_str[batch_idx] = input_str[batch_idx] + generate_str[batch_idx]
+
         #returns by several conditions
         if self.batch_size == 1 and self.demo_mode is True:
             if self.return_ids == True:
-                return generate_str[0], full_str[0],return_ids_list[0]
+                return generate_str[0], input_str[0],return_ids_list[0]
             else:
-                return generate_str[0], full_str[0]
+                return generate_str[0], input_str[0]
         else:
             if self.return_ids == True:
                 if self.return_last_token_logits == True:
