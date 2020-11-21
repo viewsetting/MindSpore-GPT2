@@ -120,16 +120,20 @@ class TopKTopP_Filter(nn.Cell):
             # distribution = self.softmax(distribution)
             cumsum_distribution = self.cumsum(P.Softmax()(distribution), 1)
 
-            # calculate remove indices binary mask, 1 for index to be removed
-            # safty_mask: 0 for min_tokens_to_keep, multiply with indices_to_remove, add more 0.
+            # calculate remove indices binary mask, 1 for index to be removed, multiply with -1e6 then add it back to distribution.
+
+            # safty_mask: 0 for min_tokens_to_keep, multiply with indices_to_remove, add more 0 if there is no 0 in some batch.
+            # index_to_remove: [1,1,1,...,1] ---> [0,0,1,1,1,...,1] if min_tokens_to_keep = 2
             index_to_remove_binaryMask = cumsum_distribution > self.p
             index_to_remove = self.cast(index_to_remove_binaryMask, mstype.float32)
             index_to_remove = index_to_remove * self.safety_mask
+            
 
-            # get masked distribution
-            remove_distribution = distribution * index_to_remove
-            # substract logits of removed indices of distribution
-            distribution = distribution - remove_distribution
+            # get masked distribution, if the token needs to be masked, its value is substracted by self.NINF(-1e6)
+            neg_distribution = self.NINF * index_to_remove
+
+            # substract logits of removed indices of distribution by neg_distribution
+            distribution = distribution + neg_distribution
 
         return distribution, sorted_indices
 
@@ -384,9 +388,10 @@ class Sample():
         Args:
             input_ (Union): list if input is a list containing strs, Tensor with shape (batch_size,seq_length) representing input_mask
         """
-        def __init__(self, input_:Union[list,Tensor]):
+        def __init__(self, input_:Union[list,Tensor],seq_length=1024):
             self.input_strs = input_ if type(input_) is list else None
             self.input_mask = input_ if type(input_) is not list else None
+            self.seq_length = seq_length
             if self.input_strs is not None:
                 self.pos_list = [ len(input_str)-1 for input_str in self.input_strs]
             else:
@@ -397,7 +402,8 @@ class Sample():
                 self.pos_list = [max(0,pos-1) for pos in temp_pos_list]
         
         def get_pos(self, shift:int = 0):
-            shift_list = [pos+shift for pos in self.pos_list]
+            #return last token if overflow
+            shift_list = [min(self.seq_length-1,pos+shift) for pos in self.pos_list]
             return shift_list
 
 
@@ -512,7 +518,7 @@ class Sample():
             if input_str is None:
                 if input_ids is not None:
                     input_str = self._extract_string_from_tensor(input_ids,mode="full")
-        last_token = self.last_token_pos(input_mask)
+        last_token = self.last_token_pos(input_mask,seq_length=self.seq_length)
 
 
         for i in range(generate_length):
@@ -542,6 +548,7 @@ class Sample():
                 for batch_idx in range(1, self.batch_size):
                         nextword_distribution_rest = self.reshape(
                             logits[batch_idx, last_token_pos_list[batch_idx]:last_token_pos_list[batch_idx]+1:1, ::], (1, -1))
+                        #print("[DEBUG] nextword_distribution shape: {}, nextword_distribution_rest shape:{} ".format(nextword_distribution.shape,nextword_distribution_rest.shape))
                         nextword_distribution = self.concat((nextword_distribution, nextword_distribution_rest))
 
             #get filtered and sorted distribution with sorted real index for restore real next word index afterwhile
