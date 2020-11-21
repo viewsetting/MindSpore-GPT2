@@ -115,6 +115,7 @@ class TopKTopP_Filter(nn.Cell):
 
         distribution = self.cast(distribution,mstype.float32)
         sorted_indices = self.cast(sorted_indices,mstype.int32)
+
         # Topp sample
         if self.p < 1.0:
             # distribution = self.softmax(distribution)
@@ -424,12 +425,12 @@ class Sample():
             topk_distribution = distribution[:self.topk_num, ::]
             topk_distribution = self.reshape(topk_distribution, (self.batch_size, -1))
             
-            word_index = self.sample_function(topk_distribution, 1 , 1)
+            word_index = self.sample_function(P.Softmax()(topk_distribution), 1 , 1)
             word_index = self.reshape(word_index,(-1,))
             
             # GPU
         elif self.device_target == "GPU":
-            word_index = self.sample_function(distribution,1)
+            word_index = self.sample_function(P.Softmax()(distribution),1)
 
         else:
             raise ValueError("Device type {} not supported yet.".format(self.device_target))
@@ -553,8 +554,9 @@ class Sample():
 
             #get filtered and sorted distribution with sorted real index for restore real next word index afterwhile
             sorted_distribution, real_index = self.filter_distribution(nextword_distribution)
-
-            #print("[DEBUG] sorted_distribution: {},  real_index: {}".format(sorted_distribution,real_index))
+            
+            # print("[DEBUG] last_token_pos_list[0]: {}".format(last_token_pos_list[0]))
+            # print("[DEBUG] sorted_distribution: {},  real_index: {}".format(sorted_distribution,real_index))
             
             #get sampled index of sorted logits(distribution)
             word_index = self._sample_from_distribution(sorted_distribution)
@@ -588,7 +590,7 @@ class Sample():
             if 0 not in early_stop_mask:
                 break
             input_ids,input_mask = add_last_token(input_ids,input_mask,overflow_strategy="shift",append_ids=append_ids,next_token_pos=last_token.get_pos(shift=i+1))
-            #print("[DEBUG] input_ids: {}, input_mask: {}".format(input_ids[0],input_mask[0]))
+            #print("[DEBUG] input_ids: {}, input_mask: {}".format(input_ids[0][:10],input_mask[0][:10]))
         #add str to full str
         generate_str = ["" for _ in range(self.batch_size)]
         full_str = ["" for _ in range(self.batch_size)]
