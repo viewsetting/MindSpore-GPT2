@@ -229,6 +229,37 @@ def add_last_token_mask(input_mask:Tensor,overflow_strategy:str="shift"):
             if overflow_strategy == "truncate":
                 continue
             else:
-                raise ValueError("{} not an option in ['shift','truncate'].".format(overflow_strategy))
+                raise ValueError("{} is not an option in ['shift','truncate'].".format(overflow_strategy))
     return Tensor(input_mask_np,dtype=mstype.int32)
-    
+
+def add_last_token(input_ids:Tensor,input_mask:Tensor,overflow_strategy:str="shift",append_ids=None,next_token_pos=None):
+    #get positional list/numpy array
+    if next_token_pos is None:
+        pos = get_next_one_pos(input_mask).asnumpy()
+    else:
+        pos = next_token_pos
+    #get numpy of inputs
+    input_mask_np = input_mask.asnumpy()
+    input_ids_np = input_ids.asnumpy()
+    maximum_length = int(input_mask.shape[1])
+    batch_size = int(input_mask.shape[0])
+
+    for idx in range(batch_size):
+        #not overflow
+        if pos[idx] < maximum_length:
+            input_mask_np[idx][int(pos[idx])] = 1
+            input_ids_np[idx][int(pos[idx])] = append_ids[idx]
+
+        #overflow
+        else:
+            if overflow_strategy == "shift":
+                #shift one token left
+                input_ids_np[idx][0:maximum_length-1] = input_ids_np[idx][1:maximum_length]
+                input_ids_np[idx][maximum_length-1] = append_ids[idx] 
+                continue
+            if overflow_strategy == "truncate":
+                #do nothing
+                continue
+            else:
+                raise ValueError("{} is not an option in ['shift','truncate'].".format(overflow_strategy))
+    return Tensor(input_ids_np,dtype=mstype.int32),Tensor(input_mask_np,dtype=mstype.int32)
