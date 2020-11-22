@@ -57,7 +57,3 @@ nohup python run_summarization_model.py  --device_target=$device --device_id=$de
     --do_eval=$do_eval --do_train=$do_train --eval_load_param_mode=$eval_load_param_mode --epoch_num=$epoch_num \
     --top_p=$topp --top_k=$topk --temp=$temp   --append_eos=$append_eos \
     --load_finetune_ckpt_path=$fintune_ckpt_path --eval_data_file_path=$datafile >> $output_log 2>&1 &
-
-#record end time
-echo "END_TIME" >> $output_log
-echo $(date "+%Y-%m-%d %H:%M:%S") >> $output_log
