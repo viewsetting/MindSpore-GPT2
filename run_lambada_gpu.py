@@ -21,8 +21,7 @@ from src.utils.metric_method import LastTokenAccuracy,LastWordAccuracy
 from src.dataset import create_language_model_dataset
 from src.utils.lr_schedule import GPT2LearningRate
 from src.utils.losscallback import LossCallBack
-from src.utils.extract_logits_lambada import extract_logits_for_lambada,extract_last_word_input_ids
-from src.utils.lambada_utils import get_wholeword_pair,get_wholeword_label_str,get_lastword_range
+from src.utils.lambada_utils import get_wholeword_label_str
 from src.utils.tokenization import Tokenizer
 from src.GPT2_generation import generate_for_LAMBADA
 
