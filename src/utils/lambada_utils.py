@@ -115,6 +115,29 @@ def get_lastword_range(input_ids,config=None,tokenizer=None):
 
     return lastword_range
 
+def extract_logits(logits = None, seq_pos = None):
+    """
+    Args
+        logits: Tensor(batch_size,seq_length,vocab_size) e.g.(8,1024,50257)
+        seq_pos: list(batch_size)  
+
+    Return:
+        output_logits: Tensor(batch_size,1,vocab_size) extract the Specified logit according to the seq_pos list .
+    """
+
+    batch_size = logits.shape[0]
+    for i in range(batch_size):
+
+        logit = logits[i:i+1:1, seq_pos[i]:seq_pos[i]+1:1, ::]
+        # print("extract_logits logit shape: {}".format(logit.shape))
+        if i == 0 :
+            output_logits = logit
+        else:
+            output_logits = P.Concat()((output_logits, logit))
+
+    # print("final logits:",output_logits)
+    
+    return output_logits
 
 def calculate_lambada_loss(input_ids,logits,config=None,loss_net=None,tokenizer=None):
     """
