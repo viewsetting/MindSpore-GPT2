@@ -5,7 +5,7 @@ import mindspore.nn as nn
 from mindspore.ops import operations as P
 from mindspore import Tensor, Model, Parameter
 from mindspore import dtype as mstype
-from .utils.extract_logits_lambada import extract_logits
+from .utils.lambada_utils import extract_logits
 from .utils.tensor_manipulations import extract_string_from_tensor,extract_single_token_logits,tensorize_ids_with_masks,add_last_token_mask,get_next_one_pos
 from mindspore.context import get_context
 from .utils.tokenization import GPT2Tokenizer,Tokenizer
