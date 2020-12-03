@@ -139,6 +139,8 @@ def generate_for_CNN_DAILYMAIL( decoder:Model,
         beam_size = generate_config.beam_size
         generate_mode = generate_config.generate_mode
 
+        #print("[DEBUG] topk: {},  topp: {}, temperature: {}, generate_mode: {}".format(topk,topp,temperature,generate_mode))
+
         #reload generate_length from config if not specified from param of function
         generate_length = generate_config.generate_length if generate_length is None else generate_length
 
@@ -188,7 +190,7 @@ def generate_for_CNN_DAILYMAIL( decoder:Model,
                 # increase search_index to add period token('.') if search_index does not overflow.
                 search_index = search_index+1 if search_index < len_generate_str else len_generate_str
                 generated_summary = generate_str[:search_index]
-                if tokenizer.eos_token in generated_summary:
+                if generated_summary.find(tokenizer.eos_token) != -1:
                     cut_pos = generated_summary.find(tokenizer.eos_token,0)
                     generated_summary = generated_summary[:cut_pos]
 
