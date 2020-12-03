@@ -5,7 +5,7 @@ import mindspore.nn as nn
 from mindspore.ops import operations as P
 from mindspore import Tensor, Model, Parameter
 from mindspore import dtype as mstype
-from .utils.extract_logits_lambada import extract_logits
+from .utils.lambada_utils import extract_logits
 from .utils.tensor_manipulations import extract_string_from_tensor,extract_single_token_logits,tensorize_ids_with_masks,add_last_token_mask,get_next_one_pos
 from mindspore.context import get_context
 from .utils.tokenization import GPT2Tokenizer,Tokenizer
@@ -209,6 +209,101 @@ def generate_for_CNN_DAILYMAIL( decoder:Model,
             # print(summary_str[article_idx])
 
         return generated_summary_list, summary_str  # Hypo and Ref      
+
+def generate_for_LAMBADA(decoder,input_ids,logits,tokenizer,max_generate_length=3,max_iterations=200,stop_word_file=None):
+    """
+    Args:
+        input_ids(Tennor): input_ids(shape: (self.batch_size,self.seq_length)) of dataset which is sampled from mindrecord
+        logits: (batch_size,seq_length,vocab_size) (8,1024,50257)
+        max_generate_length(int): the number of tokens to generate
+
+    Return:
+        generated_last_word: generated the last word of lambada
+    """
+
+
+    generator = Sample(decoder,model_config=gpt2_net_cfg,tokenizer=tokenizer,topk_num=1,topp_prob=1,return_ids=True)
+    #True if generated
+    generate_batch_flag = [False]*gpt2_net_cfg.batch_size
+
+    #All of the batches are generated 
+    all_true = [True]*gpt2_net_cfg.batch_size
+
+    # final_generations: lastword string list
+    final_generations = ["" for _ in range(gpt2_net_cfg.batch_size)]        # ['','',',...'']
+
+    MAX_NUM = 99999
+
+    stop_word = ['.',',','!','?','"'," '",tokenizer.eos_token]
+    
+    source_str = generator._extract_string_from_tensor(input_ids,mode="single")
+    # print("source_string:",source_str)
+    print("*"*60)
+    label_str = [ ' ' +str.split()[-1] for str in source_str]
+    # print("label_string:",label_str)
+    last_word_token_num = [len(tokenizer.encode(str)) for str in label_str][0]
+    # print("label_string token num: ",last_word_token_num)
+    # remove the last word
+    source_str = [' '.join(str.split()[:-1]) for str in source_str]
+
+    lastword_start_pos_ = get_lastword_range(input_ids = input_ids,config=gpt2_net_cfg,tokenizer=tokenizer)     # [(left_pos,right_pos)] -> batch_size for list length
+    lastword_pos = []  # the previous token index of the last word
+    for item in lastword_start_pos_:
+        lastword_pos.append(item[0])
+        # print("idx:",item[0] - 1)
+
+    logits = extract_logits(logits = logits, seq_pos=lastword_pos)  #(8,1,50257)
+
+    topk = P.TopK(sorted=True)
+    _ , sorted_ids = topk(logits,max_iterations)
+    sorted_ids = sorted_ids.asnumpy()                       # [batch_size,1,max_iterations]
+    sorted_ids = sorted_ids.reshape((-1,max_iterations))    # [batch_size,max_iterations]
+    sorted_ids = sorted_ids.T                               # [max_iterations,batch_size]
+    sorted_ids = sorted_ids.tolist()                        # [[121,3,123,41],[3123,3123,43,12],...,]  (100,8)
+    
+    print("*"*60)   
+    for i in range(max_iterations):
+        print("=============== iteration:{} ==============".format(i))
+        ids = sorted_ids[i]
+        print("ids:",ids)
+        ids_str = [ tokenizer.decode([x]) for x in ids]
+        print("ids_str:",ids_str)
+        cat_str = [x+y for x,y in zip(source_str,ids_str)]
+        generate_ids_list = generator.generate(input_str=cat_str, generate_length=last_word_token_num) # [[23,34,45],[34,56,79]... ]
+        cat_ids_list = [[x]+y for x,y in zip(ids,generate_ids_list)]
+        res_str_list = [tokenizer.decode(word) for word in cat_ids_list]       # [" hel lo <|endoftext|>","word ",...]
+        print("generate string:",res_str_list)
+        
+        for j in range(gpt2_net_cfg.batch_size):
+            if generate_batch_flag[j]:
+                continue
+
+            generate_string = res_str_list[j]
+            eos_pos = min( res_str_list[j].find(word) if res_str_list[j].find(word) >=0 else MAX_NUM for word in stop_word)
+            
+            if eos_pos == MAX_NUM:
+                continue    
+            else:
+                res_str_list[j] = res_str_list[j][:eos_pos]
+
+
+            res_str_list[j] = res_str_list[j].lstrip().rstrip()
+
+            if res_str_list[j].find(" ") == -1 :     # don't have space in a word, set True
+
+                if is_stop_word(stop_word_file=stop_word_file,word=res_str_list[j]):
+                    continue
+                
+                generate_batch_flag[j] = True
+                final_generations[j] = res_str_list[j] 
+                print("*"*50)
+                print("generate last word:",res_str_list[j])
+
+        if all_true == generate_batch_flag:
+            # print("Success")
+            break
+
+    return final_generations
 
 if __name__ == '__main__':
     # s = Sample(None)
