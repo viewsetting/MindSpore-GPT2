@@ -47,19 +47,19 @@ class TopKTopP_Filter():
         self.batch_size = batch_size
         self.vocab_size = vocab_size
         self.min_tokens_to_keep = min_tokens_to_keep
-        self.safty_mask = np.concatenate((np.ones((self.batch_size,self.min_tokens_to_keep)),
-                                         np.zeros((self.batch_size,self.k-self.min_tokens_to_keep))),
-                                         axis = 1
-                                         ).astype(np.bool)
-
-        
-        
-        
         
         assert self.temp > 0.0, 'temperature must be positive'
         assert self.k >= 0, 'the top_k number must be no negative.'
         if self.k > 0:
             assert self.min_tokens_to_keep <= self.k, 'K must be larger than or equal to min_token_to_keep for top p sampling'
+
+        if self.k ==0:
+            self.k = self.vocab_size
+
+        self.safety_mask = np.concatenate((np.ones((self.batch_size,self.min_tokens_to_keep)),
+                                         np.zeros((self.batch_size,self.k-self.min_tokens_to_keep))),
+                                         axis = 1
+                                         ).astype(np.bool)
 
     def calculate(self, distribution):
         """
@@ -70,38 +70,38 @@ class TopKTopP_Filter():
             selected ids
 
         """
-        #distribution = self.softmax(distribution)
+        
         if self.temp != 1.0:
-            distribution = distribution / self.temp
+            distribution = distribution / float(self.temp)
 
-        distribution_sorted = np.sort(-distribution,axis=1)
+        distribution_sorted = -np.sort(-distribution,axis=1)
         index_sorted = np.argsort(-distribution,axis=1)
-
-        if self.k ==0:
-            self.k = self.vocab_size
 
         # if self.k == 0, topk_distribution will choose full of distribution_sorted
         topk_distribution = distribution_sorted[::,:self.k if self.k > 0 else self.vocab_size]
         topk_indices = index_sorted[::,:self.k if self.k > 0 else self.vocab_size]
-        topk_distribution = softmax(topk_distribution,axis=1)
 
         #safety check
         self.p = max(0.0,min(1.0,self.p))
-        cum_sum = np.cumsum(topk_distribution,axis=1)
-        bool_map = np.logical_or((cum_sum <= self.p),self.safty_mask).astype(np.float32)
+        cum_sum = np.cumsum(softmax(topk_distribution,axis=1),axis=1)
+        bool_map = np.logical_or((cum_sum <= self.p),self.safety_mask).astype(np.float32)
         
-        topk_distribution = topk_distribution * bool_map
+        topk_distribution = topk_distribution * bool_map + np.float32(-1e5)*(1.0-bool_map)
 
-        normalize_factor = np.cumsum(topk_distribution,axis=1)[::,-1::]
 
-        #sum to 1
-        topk_distribution = topk_distribution/normalize_factor
+        topk_distribution = softmax(topk_distribution,axis=1)
+
+        #normalize for np.float64
+        topk_distribution = topk_distribution.astype(np.float64)
+        for batch_idx in range(self.batch_size):
+            topk_distribution[batch_idx] = topk_distribution[batch_idx] / np.sum(topk_distribution[batch_idx])
 
         ret_ids = []
 
         for batch_idx in range(self.batch_size):
-            select_index = np.random.choice(self.k,size=1,p=topk_distribution[batch_idx])[0]
+            select_index = np.argmax(np.random.multinomial(1,topk_distribution[batch_idx]))
             ret_ids.append(topk_indices[batch_idx][select_index])
+
         return ret_ids
 
 class Sample():
