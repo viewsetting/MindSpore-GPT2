@@ -21,7 +21,7 @@ def split_by_last_word(string_list):
     """
     return [ ' '.join(s.split()[:-1]) for s in string_list],[ s.split()[-1:][0] for s in string_list]
 
-def _get_lastword_range(prefix,stringlist,tokenizer=None):
+def _get_lastword_range(prefix, stringlist, tokenizer=None):
     """
     Get the range of lastword tokenized index in label_ids
 
@@ -38,11 +38,23 @@ def _get_lastword_range(prefix,stringlist,tokenizer=None):
         tokenizer = Tokenizer()
         print('[WARNING] parameter: tokenizer is missing in utils.lambada_utils.last_word_index, using Tokenizer() as default tokenizer')
     
-    prefix_ids_len = [len(tokenizer.encode(prefix_str)) for prefix_str in prefix]
-    full_ids_len = [len(tokenizer.encode(full_str)) for full_str in stringlist]
+    prefix_ids_len = [len(tokenizer.encode(prefix_str))  for prefix_str in prefix] # +1 for including bos 
+    full_ids_len = [len(tokenizer.encode(full_str))  for full_str in stringlist] # +1 for including bos 
     
+    #lastword_range = [(prefix_length, full_length) for prefix_length, full_length in zip(prefix_ids_len, full_ids_len)] 
+    lastword_range_ = [(prefix_length, full_length) for prefix_length, full_length in zip(prefix_ids_len, full_ids_len)]
+    lastword_range = []
+    for i in range(len(lastword_range_)):
+        full_ids = tokenizer.encode(stringlist[i])
+        last_prefix_id = tokenizer.encode(prefix[i])[-1]
+        range_left = prefix_ids_len[i]
+        for j in range(len(full_ids)-2,0,-1):
+            if full_ids[j]== last_prefix_id:
+                range_left = j+1
+                break
 
-    lastword_range = [(prefix_length,full_length) for prefix_length,full_length in zip(prefix_ids_len,full_ids_len)] 
+        lastword_range.append((range_left,lastword_range_[i][1])) 
+    
     return lastword_range
 
 def create_lambada_mask(input_ids,config=None,tokenizer=None):
