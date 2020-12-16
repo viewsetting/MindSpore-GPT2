@@ -1,3 +1,4 @@
+# test
 import os
 import numpy as np
 import argparse
@@ -21,9 +22,10 @@ from src.utils.metric_method import LastTokenAccuracy,LastWordAccuracy
 from src.dataset import create_language_model_dataset
 from src.utils.lr_schedule import GPT2LearningRate
 from src.utils.losscallback import LossCallBack
-from src.utils.lambada_utils import get_wholeword_label_str
+from src.utils.extract_logits_lambada import extract_logits_for_lambada,extract_last_word_input_ids
+from src.utils.lambada_utils import get_wholeword_label_str,get_lastword_range
 from src.utils.tokenization import Tokenizer
-from src.GPT2_generation import generate_for_LAMBADA
+from src.GPT2_generation import generate_for_LAMBADA_numpy_topk
 
 
 def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoint_path="", epoch_num=1):
@@ -108,7 +110,7 @@ def eval_result_print(metric="accuracy", callback=None):
         raise ValueError("metric method not supported, support: [accuracy]")
 
 
-def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",eval_type=None):
+def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",eval_type=None, generate_length_Dynamically=True):
     """
     Do eval
     Args:
@@ -165,12 +167,10 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",eva
             
             logits = model.predict(input_ids, input_mask)  # (batch_size,seq_len,vocab_size)
             print("="*40)
-
-            # exit()  
-            # print("after predict logits shape:",logits.shape)         
-            output_str = generate_for_LAMBADA(decoder=model,input_ids = input_ids, 
-                                            logits = logits, tokenizer=tokenizer,
-                                            max_generate_length=3, max_iterations=300,
+            
+            output_str = generate_for_LAMBADA_numpy_topk(decoder=model,input_ids = input_ids, 
+                                            logits = logits, tokenizer=tokenizer, max_iterations=200,
+                                            generate_length_dynamically=generate_length_Dynamically,
                                             stop_word_file="src/utils/pretrain-data/stopwords.txt")
 
             label_str = get_wholeword_label_str(input_ids=input_ids,config=gpt2_net_cfg,tokenizer=tokenizer)
@@ -191,7 +191,7 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",eva
         print("Prepare to calculate the ppl score ...")
         # ppl metric can be calculated by using the loss, so the difference is 'is_training'
         gpt2_loss = GPT2Lambada(config=gpt2_net_cfg,
-                                is_training=True,            
+                                is_training=False,            
                                 use_one_hot_embeddings=False) 
         gpt2_loss.set_train(False)                     
         model = Model(gpt2_loss)
@@ -213,11 +213,12 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",eva
         
         columns_list = ["input_ids", "input_mask", "label_ids"]
 
-        print("================= Testing LAMBADA PPL =================")
         num_data = 0
         total_ppl = 0.0
+        total_loss = 0.0
+        print("================= Testing LAMBADA PPL =================")
         for data in dataset.create_dict_iterator():
-            print("=========== LAMBADA PPL EVAL iteration:{}==========".format(num_data))
+            print("=========== LAMBADA PPL Test iteration:{}==========".format(num_data))
             input_data = []
             for i in columns_list:
                 input_data.append(data[i])
@@ -226,19 +227,64 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",eva
             print("input_mask_shape: {}".format(input_mask.shape))
             print("label_ids_shape: {}".format(label_ids.shape))
 
-            loss = model.predict(input_ids, input_mask, label_ids)
+            logits = model.predict(input_ids, input_mask) # (batch_size,seq_len,vocab_size)
+            # print("*"*30)
+            last_word_range_ = get_lastword_range(input_ids=input_ids, config=gpt2_net_cfg, tokenizer=tokenizer) #[(left_pos,right_pos)]
+            last_word_range = (last_word_range_[0][0] +1 , last_word_range_[0][1]+1)
+            last_word_logits_start_pos = last_word_range[0] -1
+            last_word_logits_end_pos = last_word_range[1] -1
+            last_word_token_len = last_word_range[1] - last_word_range[0]
+
+            # print(" | last word range:", last_word_range)
+            print(" | Last word token length:", last_word_token_len)
+
+            # print(last_word_ids)
+            # last_word_ids = P.Reshape()(last_word_ids,(-1,)).asnumpy().tolist()
+            # print(last_word_ids)
+
+            label_ids = extract_last_word_input_ids(input_ids=input_ids, seq_pos=last_word_range)   #(batch_size=1,x=lastword token num)
+
+            gold_logits = logits[::, last_word_logits_start_pos:last_word_logits_end_pos:1, ::]
+
+
+            label_ids = P.Reshape()(label_ids,(-1,))  # (x,)
+            print("label ids: ",label_ids)
+            # print("labels ids shape:",label_ids.shape)
+            # print("gold logits shape:",gold_logits.shape)
+
+            gold_logits = P.Reshape()(gold_logits, (-1, gpt2_net_cfg.vocab_size))
+            # print("gold logits:",gold_logits)
+            # print("gold logits shape :",gold_logits.shape)
+            label_word_ids = label_ids.asnumpy().tolist()
+            # generate_ids = np.argmax(gold_logits.asnumpy().tolist())
+            # print(type(generate_ids))
+            # generate_ids = generate_ids.tolist()
+            # print(generate_ids)
+            label_word = tokenizer.decode(label_word_ids)
+            print("label word: ",label_word)
+            # generate_word = tokenizer.decode([generate_ids])
+            
+            # print("generate word:", generate_word)
+
+            cross_entropy = SoftmaxCrossEntropyWithLogits(sparse=True, reduction='mean')
+            loss = cross_entropy(gold_logits, label_ids)
+            
+            # loss = model.predict(input_ids, input_mask, label_ids)
+
             loss = loss.asnumpy()
-            ppl = math.exp(float(loss))
-
             print(" | Loss: {:.6f}".format(float(loss)))
-            print(" | PPL: {}".format(ppl))
-            num_data += 1
-            total_ppl += ppl
-            avg_ppl = total_ppl / num_data
-            print(" | Current avg ppl:",avg_ppl)
 
-        avg_ppl = total_ppl / num_data
-        print("Average PPL: {:.6f}".format(avg_ppl))    
+            num_data += 1
+            total_loss += loss 
+            avg_loss = total_loss / num_data
+
+            print(" | Current AVG loss:",avg_loss)
+            print(" | Current AVG ppl:",math.exp(avg_loss))
+
+        ppl = math.exp(avg_loss)
+        # avg_ppl = total_loss / num_data
+        print("-----------------------------------------")
+        print(" PPL: {:.6f}".format(ppl))    
         print("************** Testing Finished **************")
     else:
         raise ValueError("metric method not supported, support: [accuracy, ppl]")
@@ -267,6 +313,12 @@ def run_lambada():
                         help="Enable train data shuffle. Default: true.")
     parser.add_argument("--eval_data_shuffle", type=str, default="false",
                         help="Enable eval data shuffle. Default: false.")
+
+    parser.add_argument("--generate_length_Dynamically", type=str, default="true",
+                        help="Enable generate_length_Dynamically. Default: true.")
+    parser.add_argument("--generate_length", type=str, default="3",
+                        help="generate last word token length. Default: 3.")
+
     parser.add_argument("--save_finetune_ckpt_path", type=str, default="./pretrained-weight/",
                         help="Save the checkpoint path.")
     ## modify
@@ -274,9 +326,9 @@ def run_lambada():
                         help="Load the checkpoint file path.")
     parser.add_argument("--load_finetune_ckpt_path", type=str, default="./pretrained-weight/mindspore_model_small.ckpt",
                         help="Load the checkpoint file path.")
-    parser.add_argument("--train_data_file_path", type=str, default="./src/mindspore-dataset/lambada-clean-test-mindrecord",
+    parser.add_argument("--train_data_file_path", type=str, default="./src/mindspore-dataset/lambada-development-test-mindrecord",
                         help="Data path, it is better to use absolute path")
-    parser.add_argument("--eval_data_file_path", type=str, default="./src/mindspore-dataset/lambada-clean-test-mindrecord",
+    parser.add_argument("--eval_data_file_path", type=str, default="./src/mindspore-dataset/lambada-control-test-mindrecord",
                         help="Data path, it is better to use absolute path")
     args_opt = parser.parse_args()
 
@@ -328,7 +380,7 @@ def run_lambada():
         print(" | Eval Dataset: {}".format(args_opt.eval_data_file_path))
         print(" | Checkpoint: {}".format(args_opt.load_finetune_ckpt_path))
         eval_dataset = create_language_model_dataset(dataset_path=args_opt.eval_data_file_path)
-        do_eval(eval_dataset, GPT2Lambada, metric, load_finetune_ckpt_path, args_opt.eval_type)
+        do_eval(eval_dataset, GPT2Lambada, metric, load_finetune_ckpt_path, args_opt.eval_type, args_opt.generate_length_Dynamically)
 
 
 if __name__ == "__main__":
