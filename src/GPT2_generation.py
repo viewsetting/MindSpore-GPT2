@@ -11,7 +11,8 @@ from mindspore.context import get_context
 from .utils.tokenization import GPT2Tokenizer,Tokenizer
 from .utils.mock_config import MockConfig
 from .GPT2_model import GPT2Config
-from .utils.generation_utils import Sample, BeamSearch, GenerationConfig
+# from .utils.generation_utils import Sample, BeamSearch, GenerationConfig
+from .utils.generation_utils_numpy import Sample, BeamSearch, GenerationConfig
 
 INF = 1. * 1e9
 
