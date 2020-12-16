@@ -212,7 +212,7 @@ def generate_for_CNN_DAILYMAIL( decoder:Model,
 
         return generated_summary_list, summary_str  # Hypo and Ref      
 
-def generate_for_LAMBADA(decoder,input_ids,logits,tokenizer,max_generate_length=3,max_iterations=200,stop_word_file=None):
+def generate_for_LAMBADA_numpy_topk(decoder, input_ids, logits, tokenizer, generate_length_dynamically=True, max_iterations=200, stop_word_file=None):
     """
     Args:
         input_ids(Tennor): input_ids(shape: (self.batch_size,self.seq_length)) of dataset which is sampled from mindrecord
@@ -234,15 +234,13 @@ def generate_for_LAMBADA(decoder,input_ids,logits,tokenizer,max_generate_length=
     # final_generations: lastword string list
     final_generations = ["" for _ in range(gpt2_net_cfg.batch_size)]        # ['','',',...'']
 
-    MAX_NUM = 99999
-
-    stop_word = ['.',',','!','?','"'," '",tokenizer.eos_token]
+    stop_eos = ['.',',','!','?','"'," '"," and"," says"," said"]
     
     source_str = generator._extract_string_from_tensor(input_ids,mode="single")
     # print("source_string:",source_str)
-    print("*"*60)
+    # print("*"*60)
     label_str = [ ' ' +str.split()[-1] for str in source_str]
-    # print("label_string:",label_str)
+    print("label_word: ",label_str[0])
     last_word_token_num = [len(tokenizer.encode(str)) for str in label_str][0]
     # print("label_string token num: ",last_word_token_num)
     # remove the last word
@@ -255,36 +253,38 @@ def generate_for_LAMBADA(decoder,input_ids,logits,tokenizer,max_generate_length=
         # print("idx:",item[0] - 1)
 
     logits = extract_logits(logits = logits, seq_pos=lastword_pos)  #(8,1,50257)
+    # print("last logits:",logits)
 
-    topk = P.TopK(sorted=True)
-    _ , sorted_ids = topk(logits,max_iterations)
-    sorted_ids = sorted_ids.asnumpy()                       # [batch_size,1,max_iterations]
-    sorted_ids = sorted_ids.reshape((-1,max_iterations))    # [batch_size,max_iterations]
+    logits = logits.asnumpy()
+    logits = logits.reshape((-1,tokenizer.vocab_size))
+
+    sorted_ids = np.argsort(-logits,axis=-1)[::,:max_iterations]
     sorted_ids = sorted_ids.T                               # [max_iterations,batch_size]
+    # print("sortd ids T:",sorted_ids)
     sorted_ids = sorted_ids.tolist()                        # [[121,3,123,41],[3123,3123,43,12],...,]  (100,8)
     
-    print("*"*60)   
     for i in range(max_iterations):
-        print("=============== iteration:{} ==============".format(i))
+        # print("=============== iteration:{} ============== ".format(i))
         ids = sorted_ids[i]
-        print("ids:",ids)
         ids_str = [ tokenizer.decode([x]) for x in ids]
-        print("ids_str:",ids_str)
         cat_str = [x+y for x,y in zip(source_str,ids_str)]
-        generate_ids_list = generator.generate(input_str=cat_str, generate_length=last_word_token_num) # [[23,34,45],[34,56,79]... ]
+        if generate_length_dynamically:
+            generate_length =  last_word_token_num
+        else:
+            generate_length = 3 # default generate length
+        generate_ids_list = generator.generate(input_str=cat_str, generate_length=generate_length,do_sample=False) # [[23,34,45],[34,56,79]... ]
         cat_ids_list = [[x]+y for x,y in zip(ids,generate_ids_list)]
         res_str_list = [tokenizer.decode(word) for word in cat_ids_list]       # [" hel lo <|endoftext|>","word ",...]
-        print("generate string:",res_str_list)
         
         for j in range(gpt2_net_cfg.batch_size):
             if generate_batch_flag[j]:
                 continue
 
             generate_string = res_str_list[j]
-            eos_pos = min( res_str_list[j].find(word) if res_str_list[j].find(word) >=0 else MAX_NUM for word in stop_word)
-            
-            if eos_pos == MAX_NUM:
-                continue    
+            eos_pos = min( res_str_list[j].find(word) if res_str_list[j].find(word) >=0 else INF for word in stop_eos)
+
+            if eos_pos == INF:
+                continue
             else:
                 res_str_list[j] = res_str_list[j][:eos_pos]
 
@@ -292,14 +292,17 @@ def generate_for_LAMBADA(decoder,input_ids,logits,tokenizer,max_generate_length=
             res_str_list[j] = res_str_list[j].lstrip().rstrip()
 
             if res_str_list[j].find(" ") == -1 :     # don't have space in a word, set True
-
-                if is_stop_word(stop_word_file=stop_word_file,word=res_str_list[j]):
+                # if res_str_list[j] == "":
+                #     continue
+                if is_stop_word(stop_word_file=stop_word_file,word=res_str_list[j].lower()):
                     continue
                 
                 generate_batch_flag[j] = True
                 final_generations[j] = res_str_list[j] 
-                print("*"*50)
-                print("generate last word:",res_str_list[j])
+                # print("*"*50)
+                print("generate_word:{}".format(res_str_list[j]))
+                print("label_token_num:{}".format(label_token_num))
+                print("gen_token_num:{}".format(gen_token_num))
 
         if all_true == generate_batch_flag:
             # print("Success")
