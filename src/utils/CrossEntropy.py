@@ -1,9 +1,20 @@
+import numpy as np
 from mindspore.common.tensor import Tensor
 from mindspore.common import dtype as mstype
 from mindspore.ops import operations as P
 from mindspore.ops import functional as F
 import mindspore.nn as nn
 
+# softmax
+def softmax(x):
+    return np.exp(x) / np.sum(np.exp(x))
+
+# cross entropy with numpy
+def cross_entropy_np(logits, labels):
+    x_softmax = [softmax(logits[i]) for i in range(len(logits))]
+    x_log = [np.log(x_softmax[i][labels[i]]) for i in range(len(labels))]
+    loss = - np.sum(x_log) / len(labels)
+    return loss
 
 class CrossEntropyCalculationWithMask(nn.Cell):
     """
@@ -51,3 +62,20 @@ class CrossEntropyCalculationWithMask(nn.Cell):
             return_value = logits * 1.0 # [batch * (seq_length-1), vocab_size]
         
         return return_value
+
+if __name__ == "__main__":
+    x = np.array([[0.093, 0.1939, -1.0649, 0.4476, -2.0769],
+            [-1.8024, 0.3696, 0.7796, -1.0346, 0.473],
+            [0.5593, -2.5067, -2.1275, 0.5548, -1.6639]])
+
+    y = np.array([1, 2, 3])
+    print('numpy result: ', cross_entropy_np(x, y)) # x:logits, y:labels
+
+
+    cross_entropy = SoftmaxCrossEntropyWithLogits(sparse=True, reduction='mean')
+    loss = cross_entropy(Tensor(x,mstype.float32), Tensor(y,mstype.int32))
+    print("mindspore Cross Entropy :",loss)
+
+
+    # numpy result:  1.0155949508195155
+    # mindspore Cross Entropy : 1.015595
