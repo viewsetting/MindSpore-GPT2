@@ -90,12 +90,12 @@ def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoin
     param_dict = load_checkpoint(load_checkpoint_path)
     reorganized_param_dict = dict()
     if resume == False :
-        print("Do not resume.\nRESUME: {}".format(resume))
+        print("Do not resume.\nRESUME STATE: {}".format(resume))
         for netName in param_dict:
             reorganized_param_dict['gpt2.gpt2.'+netName] = param_dict[netName]
         reorganized_param_dict['gpt2.lm_head.weight'] = param_dict['gpt2_embedding_lookup.embedding_table']
     else:
-        print("Resume Mode")
+        print("Start to resume training.\nRESUME STATE: {}".format(resume))
         reorganized_param_dict = param_dict
     load_param_into_net(network, reorganized_param_dict)
 
@@ -119,6 +119,16 @@ def eval_result_print(metric="Rouge", callback=None):
         raise ValueError("metric method '{}' not supported, support: [Rouge]. ".format(str(metric)))
 
 def modify_paramdict(param_dict,mode="zero-shot",model_prefix="gpt2."):
+    """
+    modify keys of param_dict to fit model.
+
+    Args:
+        param_dic: dict, dictionary of parameters imported from a ckpt file
+        mode:   str, "zero-shot" for an pretrained GPT2 model; 
+                "finetune" for an finetuned model for certain task.
+    Return:
+        reorganized_param_dict: dict, new param_dict to fit in model for different tasks.
+    """
     reorganized_param_dict = dict()
     if mode == "zero-shot":        
         for netName in param_dict:
@@ -141,8 +151,16 @@ def modify_paramdict(param_dict,mode="zero-shot",model_prefix="gpt2."):
     else:
          raise NotImplementedError
 
-# to prevent generation of empty string
+
 def clean_hypo(text):
+    """
+    to prevent generation of empty string, and lower text
+
+    Arg:
+        text: str, input str
+    Return:
+        text: str, cleaned input str
+    """
     text = text.lower()
     eng_re = re.compile(r'[a-z]+',re.I)
     if len(eng_re.findall(text)) == 0:
@@ -323,8 +341,6 @@ def run_summarization():
     
 
     if args_opt.do_train.lower() == "true":
-        #print if model is loaded tp resume training
-        print("RESUME:  ",resume)
         train_data_file_path = args_opt.train_data_file_path
         gpt2_loss = GPT2Summarization(config=gpt2_net_cfg,
                          is_training=True,
