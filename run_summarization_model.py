@@ -2,6 +2,7 @@
 import os
 import argparse
 import math
+import regex as re
 import mindspore
 from src.GPT2ForSummarization import GPT2SummarizationModel
 from src.gpt2_for_finetune import GPT2Summarization,GPT2FinetuneCell
@@ -25,7 +26,7 @@ from src.utils.generation_utils import GenerationConfig
 from mindspore.ops import operations as P
 from src.GPT2_generation import generate_for_CNN_DAILYMAIL
 
-def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoint_path="", epoch_num=1):
+def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoint_path="", epoch_num=1,resume=False):
     """
     Do train
     Args:
@@ -38,7 +39,14 @@ def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoin
     if load_checkpoint_path == "":
         raise ValueError("Pretrain model missed, finetune task must load pretrain model!")
     
-    steps_per_epoch = dataset.get_dataset_size() # samples / batch_size  doing####
+    steps_per_epoch = dataset.get_dataset_size() # samples / batch_size
+    
+    #print info
+    print("="*30,"TRAIN INFO","="*30)
+    
+    print("optimizer: {}".format(cfg.optimizer))
+    
+    
     
     #Select Optimizer
     if cfg.optimizer == 'AdamWeightDecay':
@@ -56,6 +64,13 @@ def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoin
                         {'params': other_params, 'weight_decay': 0.0}]
         optimizer = AdamWeightDecay(group_params, lr_schedule, eps=cfg.AdamWeightDecay.eps)
     elif cfg.optimizer == 'Lamb':
+    
+        #print info
+        print("lr: {}".format(cfg.Lamb.learning_rate))
+        print("end_learning_rate: {}".format(cfg.Lamb.end_learning_rate))
+        #print("warmup_steps: {}".format(int(steps_per_epoch * epoch_num * 0.1)))
+        print("power: {}".format(cfg.Lamb.power))
+        
         lr_schedule = GPT2LearningRate(learning_rate=cfg.Lamb.learning_rate,
                                        end_learning_rate=cfg.Lamb.end_learning_rate,
                                        warmup_steps=int(steps_per_epoch * epoch_num * 0.1),
@@ -74,19 +89,24 @@ def do_train(dataset=None, network=None, load_checkpoint_path="", save_checkpoin
                                  config=ckpt_config)
     param_dict = load_checkpoint(load_checkpoint_path)
     reorganized_param_dict = dict()
-    for netName in param_dict:
-        reorganized_param_dict['gpt2.gpt2.'+netName] = param_dict[netName]
-    reorganized_param_dict['gpt2.lm_head.weight'] = param_dict['gpt2_embedding_lookup.embedding_table']
+    if resume == False :
+        print("Do not resume.\nRESUME: {}".format(resume))
+        for netName in param_dict:
+            reorganized_param_dict['gpt2.gpt2.'+netName] = param_dict[netName]
+        reorganized_param_dict['gpt2.lm_head.weight'] = param_dict['gpt2_embedding_lookup.embedding_table']
+    else:
+        print("Resume Mode")
+        reorganized_param_dict = param_dict
     load_param_into_net(network, reorganized_param_dict)
 
     update_cell = DynamicLossScaleUpdateCell(loss_scale_value=2**32, scale_factor=2, scale_window=1000)
     netwithgrads = GPT2FinetuneCell(network, optimizer=optimizer, scale_update_cell=update_cell)
     netwithgrads.set_train(True)
-    loss_cb = LossMonitor()
+    loss_cb = LossMonitor(per_print_times=1)
     model = Model(netwithgrads)
     callbacks = [TimeMonitor(dataset.get_dataset_size()), loss_cb, ckpoint_cb]
     print("============== Starting Training For Summrization Task ==============")
-    model.train(epoch_num, dataset, callbacks=callbacks)
+    model.train(epoch_num, dataset, callbacks=callbacks, dataset_sink_mode=False)
     print("============== Summrization Training Success ==============")
 
 
@@ -94,12 +114,9 @@ def eval_result_print(metric="Rouge", callback=None):
     """ print eval result"""
     if metric == "Rouge":
         print("Rouge-1 {:.8f}, Rouge-2 {:.8f}, Rouge-L {:.8f}, Rouge-AVG{:.8f}".format(callback.Rouge1/callback.total_num, callback.Rouge2/callback.total_num,
-                                                                 callback.RougeL / callback.total_num,(callback.Rouge1+callback.Rouge2+callback.RougeL) / callback.total_num))
+                                                                 callback.RougeL / callback.total_num,(callback.Rouge1+callback.Rouge2+callback.RougeL) / (3.0*callback.total_num) ))
     else:
         raise ValueError("metric method '{}' not supported, support: [Rouge]. ".format(str(metric)))
-
-def filter_article(article,tokenizer):
-    raise NotImplementedError
 
 def modify_paramdict(param_dict,mode="zero-shot",model_prefix="gpt2."):
     reorganized_param_dict = dict()
@@ -123,43 +140,15 @@ def modify_paramdict(param_dict,mode="zero-shot",model_prefix="gpt2."):
         
     else:
          raise NotImplementedError
-        
-def remove_repetition(hypo,window_range = 3):
-    new_hypo = []
-    def check_window_repetition(lst):
-        prev = lst[0]
-        for x in lst:
-            if x is not prev:
-                return True
-            prev = x
-        return False
 
-    def remove_repetition_single(text):
-        if '\n' in text:
-            #remove '\n'
-            text = text.replace('\n',' ')
-        if '\xa0' in text:
-            #remove \xa0
-            text.replace('\xa0',' ')
-        text = ' '.join(text.split())
-
-        text_list = text.split()
-        len_text_list = len(text_list)
-
-        for start_pos in range(0,len_text_list-window_range):
-            new_window = text_list[start_pos:start_pos+window_range]
-            if check_window_repetition(new_window) is False:
-                text_list = text_list[:start_pos+1]
-                break
-
-        return ' '.join(text_list)
-
-    for sen in hypo:
-        new_sen = remove_repetition_single(sen)
-        if new_sen is '':
-            new_sen = '<empty>'
-        new_hypo.append(new_sen)
-    return new_hypo
+# to prevent generation of empty string
+def clean_hypo(text):
+    text = text.lower()
+    eng_re = re.compile(r'[a-z]+',re.I)
+    if len(eng_re.findall(text)) == 0:
+        return '<EMPTY>'
+    else:
+        return text
 
 
 def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",eval_load_param_mode="zero-shot",generation_config_path=""):
@@ -217,8 +206,16 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",eva
                                                 tldr_str=tldr_str,
                                                 tokenizer=tokenizer,
                                                 generate_config=generate_config)
-            #hypo = remove_repetition(hypo)
+
             print("REF str:\n ",ref,"\nHYPO str:\n",hypo,"\n")
+
+            for i in range(gpt2_net_cfg.batch_size):
+                hypo[i] = clean_hypo(hypo[i])
+            
+            for i in range(gpt2_net_cfg.batch_size):
+                hypo[i] = hypo[i].lower()
+                ref[i] = ref[i].lower()
+            
             callback.update(hypo,ref)
 
         print("="*35)
@@ -253,6 +250,8 @@ def run_summarization():
                         help="The eval method including [Rouge(Rouge1,Rouge2,RougeL,Rouge Avg)]. Default: Rouge.") 
     parser.add_argument("--epoch_num", type=int, default=2,
                         help="Epoch number. Default: 2.")
+    parser.add_argument("--resume", type=str, default="false",
+                        help="resume trainning or not")
 
     #dataset and params_dict file settings
     parser.add_argument("--train_data_shuffle", type=str, default="true",
@@ -272,7 +271,7 @@ def run_summarization():
     parser.add_argument("--eval_load_param_mode", type=str, default="zero-shot",
                         help="Mode for load param of evaluation, [zero-shot,finetune]")
 
-    # sample settings
+    # sampling settings
     parser.add_argument("--top_k", type=int, default=2,
                         help="top k tokens chosen for sampling")
     parser.add_argument("--top_p", type=float, default=1.0,
@@ -294,6 +293,10 @@ def run_summarization():
     load_finetune_ckpt_path = args_opt.load_finetune_ckpt_path
     load_pretrain_ckpt_path = args_opt.load_pretrain_ckpt_path
     eval_load_param_mode = args_opt.eval_load_param_mode
+    
+    #resume training True or False
+    resume = True if args_opt.resume.lower() == "true" else False
+    
     topk = args_opt.top_k
     topp = args_opt.top_p
     temperature = args_opt.temp
@@ -320,6 +323,8 @@ def run_summarization():
     
 
     if args_opt.do_train.lower() == "true":
+        #print if model is loaded tp resume training
+        print("RESUME:  ",resume)
         train_data_file_path = args_opt.train_data_file_path
         gpt2_loss = GPT2Summarization(config=gpt2_net_cfg,
                          is_training=True,
@@ -327,7 +332,7 @@ def run_summarization():
         print("============== Start Loading Train Dataset ==============")
         train_dataset = create_cnn_dailymail_dataset(
             dataset_path=train_data_file_path)
-        do_train(train_dataset, gpt2_loss, load_pretrain_ckpt_path, save_finetune_ckpt_path, epoch_num)
+        do_train(train_dataset, gpt2_loss, load_pretrain_ckpt_path, save_finetune_ckpt_path, epoch_num,resume)
 
     if args_opt.do_eval.lower() == "true":
         eval_dataset_file_path = args_opt.eval_data_file_path
