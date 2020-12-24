@@ -9,7 +9,6 @@ test/
 __pycache__
 **/cuda_**/**
 *.txt
-run_*.sh
 create_*.sh
 *.dat
 test_*.py
