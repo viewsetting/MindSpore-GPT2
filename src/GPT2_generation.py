@@ -15,89 +15,6 @@ from .GPT2_model import GPT2Config
 from .utils.generation_utils_numpy import Sample, BeamSearch, GenerationConfig
 
 INF = 1. * 1e9
-
-
-class LengthPenalty(nn.Cell):
-    """
-    Length penalty.
-
-    Args:
-        weight (float): The length penalty weight.
-        compute_type (mstype): Mindspore data type. Default: mstype.float32.
-    """
-
-    def __init__(self, weight=1.0, compute_type=mstype.float32):
-        super(LengthPenalty, self).__init__()
-        self.weight = weight
-
-        self.add = P.TensorAdd()
-        self.pow = P.Pow()
-        self.div = P.RealDiv()
-        self.cast = P.Cast()
-
-        self.five = Tensor(5.0, mstype.float32)
-        self.six = Tensor(6.0, mstype.float32)
-
-    def construct(self, length_tensor):
-        """
-        Process source sentence
-
-        Inputs:
-            length_tensor (Tensor):  the input tensor.
-
-        Returns:
-            Tensor, after punishment of length.
-        """
-        length_tensor = self.cast(length_tensor, mstype.float32)
-        output = self.add(length_tensor, self.five)
-        output = self.div(output, self.six)
-        output = self.pow(output, self.weight)
-        return output
-
-
-class TileBeam(nn.Cell):
-    """
-    Beam Tile operation.
-
-    Args:
-        beam_width (int): The Number of beam.
-        compute_type (mstype): Mindspore data type. Default: mstype.float32.
-    """
-
-    def __init__(self, beam_width, compute_type=mstype.float32):
-        super(TileBeam, self).__init__()
-        self.beam_width = beam_width
-
-        self.expand = P.ExpandDims()
-        self.tile = P.Tile()
-        self.reshape = P.Reshape()
-        self.shape = P.Shape()
-
-    def construct(self, input_tensor):
-        """
-        Process source sentence
-
-        Inputs:
-            input_tensor (Tensor):  with shape (N, T, D).
-
-        Returns:
-            Tensor, tiled tensor.
-        """
-        shape = self.shape(input_tensor)
-        # add an dim
-        input_tensor = self.expand(input_tensor, 1)
-        # get tile shape: [1, beam, ...]
-        tile_shape = (1,) + (self.beam_width,)
-        for _ in range(len(shape) - 1):
-            tile_shape = tile_shape + (1,)
-        # tile
-        output = self.tile(input_tensor, tile_shape)
-        # reshape to [batch*beam, ...]
-        out_shape = (shape[0] * self.beam_width,) + shape[1:]
-        output = self.reshape(output, out_shape)
-
-        return output
-
      
 def generate_for_CNN_DAILYMAIL( decoder:Model,
                                 input_ids:Tensor, 
@@ -139,8 +56,8 @@ def generate_for_CNN_DAILYMAIL( decoder:Model,
         temperature = generate_config.temperature
         beam_size = generate_config.beam_size
         generate_mode = generate_config.generate_mode
+        prefix = generate_config.prefix
 
-        #print("[DEBUG] topk: {},  topp: {}, temperature: {}, generate_mode: {}".format(topk,topp,temperature,generate_mode))
 
         #reload generate_length from config if not specified from param of function
         generate_length = generate_config.generate_length if generate_length is None else generate_length
@@ -157,22 +74,24 @@ def generate_for_CNN_DAILYMAIL( decoder:Model,
         article_str, summary_str = extract_string_from_tensor(
             input_ids=input_ids, config = model_config,mode="pair",tokenizer=tokenizer)
         generated_summary_list= [""] * model_config.batch_size
-
         
-        # tldr_str = "TL;DR:"
+        #clip remaining of last sentence
+        for i in range(model_config.batch_size):
+            last_dot_pos = max(article_str[i].rfind(' .'),article_str[i].rfind('. ')) +2
+            article_str[i] = article_str[i][:last_dot_pos]
+        
         # pad a <TL,DR;> token(<EOS>) after the string of Article.
         if TL_DR:
             for article_idx in range(model_config.batch_size):
                 article_str[article_idx]+=(" "+tldr_str)
         
-        # print("[DEBUG INFO] Sample.generate_for_CNN_DAILYMAIL article_str:")
-        # print(article_str)
-
+        # add prefix
+        for article_idx in range(model_config.batch_size):
+            article_str[article_idx]=prefix+" "+article_str[article_idx]
+                        
         generate_str_list, _ = generator.generate(
             input_str=article_str, generate_length=generate_length)
 
-        # print("[DEBUG INFO] Sample.generate_for_CNN_DAILYMAIL generate_str_list:")
-        # print(generate_str_list)
         
         for article_idx in range(model_config.batch_size):
             generate_str = generate_str_list[article_idx]
@@ -198,20 +117,17 @@ def generate_for_CNN_DAILYMAIL( decoder:Model,
             else:
                 generated_summary = generate_str
 
-            #if all of str hs been clipped, restore it to beginning state.
+            # if all of str hs been clipped, restore it to beginning state.
             if generated_summary == '':
                 generated_summary = generate_str  
             
-            #empty str check
+            # empty string check
             if generated_summary == '':
-                generated_summary = '<empty>'
+                generated_summary = '<EMPTY>'
             generated_summary_list[article_idx] = generated_summary
 
-            # print("[DEBUG INFO] Sample.generate_for_CNN_DAILYMAIL debugging info:\nGENERATED_SUMMARY:")
-            # print(generated_summary_list[article_idx])
-            # print(summary_str[article_idx])
-
-        return generated_summary_list, summary_str  # Hypo and Ref      
+        return generated_summary_list, summary_str  # return Hypo and Ref      
+   
 
 def generate_for_LAMBADA_numpy_topk(decoder, input_ids, logits, tokenizer, generate_length_dynamically=True, max_iterations=200, stop_word_file=None):
     """
@@ -265,7 +181,6 @@ def generate_for_LAMBADA_numpy_topk(decoder, input_ids, logits, tokenizer, gener
     sorted_ids = sorted_ids.tolist()                        # [[121,3,123,41],[3123,3123,43,12],...,]  (100,8)
     
     for i in range(max_iterations):
-        # print("=============== iteration:{} ============== ".format(i))
         ids = sorted_ids[i]
         ids_str = [ tokenizer.decode([x]) for x in ids]
         cat_str = [x+y for x,y in zip(source_str,ids_str)]
@@ -293,8 +208,7 @@ def generate_for_LAMBADA_numpy_topk(decoder, input_ids, logits, tokenizer, gener
             res_str_list[j] = res_str_list[j].lstrip().rstrip()
 
             if res_str_list[j].find(" ") == -1 :     # don't have space in a word, set True
-                # if res_str_list[j] == "":
-                #     continue
+
                 if is_stop_word(stop_word_file=stop_word_file,word=res_str_list[j].lower()):
                     continue
                 
@@ -306,13 +220,11 @@ def generate_for_LAMBADA_numpy_topk(decoder, input_ids, logits, tokenizer, gener
                 print("gen_token_num:{}".format(gen_token_num))
 
         if all_true == generate_batch_flag:
-            # print("Success")
             break
 
     return final_generations
 
 if __name__ == '__main__':
-    # s = Sample(None)
 
     pass
 
