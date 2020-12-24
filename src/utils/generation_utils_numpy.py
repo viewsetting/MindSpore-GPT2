@@ -12,11 +12,12 @@ from .tokenization import GPT2Tokenizer
 import json
 
 INF = 1. * 1e9
-
-
 class TopKTopP_Filter():
     """
-    top K sampling along with top P sampling
+    Top K sampling along with Top P sampling(Nucleus Sampling)
+    
+    Choose top-K probability of ids and those with top-P probability ids into candidate sample sets.
+    Use np.random.multinomial to sample
 
     Args:
         batch_size and vocab_size of model, (int).
@@ -36,9 +37,6 @@ class TopKTopP_Filter():
                  temperature:float=1.0,
                  min_tokens_to_keep:int=1,
                  ):
-        #super(TopKTopP_Filter, self).__init__()
-
-        #self.topK = P.TopK(sorted=True)
 
         self.k = k
         self.p = p
@@ -63,11 +61,13 @@ class TopKTopP_Filter():
 
     def calculate(self, distribution):
         """
+        caclulate sampling procesure with setting initialied before, return a list of sampled ids.
+
         Inputs:
         distribution(numpy.ndarray): with shape (batch_size,vocab_size)
     
         Returns:
-            selected ids
+            sampled ids: a list, with length: batch_size
 
         """
         
@@ -80,8 +80,9 @@ class TopKTopP_Filter():
         # if self.k == 0, topk_distribution will choose full of distribution_sorted
         topk_distribution = distribution_sorted[::,:self.k if self.k > 0 else self.vocab_size]
         topk_indices = index_sorted[::,:self.k if self.k > 0 else self.vocab_size]
+        #topk_distribution = softmax(topk_distribution,axis=1)
 
-        #safety check
+        # safety check of probability
         self.p = max(0.0,min(1.0,self.p))
         cum_sum = np.cumsum(softmax(topk_distribution,axis=1),axis=1)
         bool_map = np.logical_or((cum_sum <= self.p),self.safety_mask).astype(np.float32)
@@ -91,7 +92,8 @@ class TopKTopP_Filter():
 
         topk_distribution = softmax(topk_distribution,axis=1)
 
-        #normalize for np.float64
+        # normalize for np.float64
+        # choose np.float64 to avoid overflow in softmax operation
         topk_distribution = topk_distribution.astype(np.float64)
         for batch_idx in range(self.batch_size):
             topk_distribution[batch_idx] = topk_distribution[batch_idx] / np.sum(topk_distribution[batch_idx])
@@ -101,7 +103,7 @@ class TopKTopP_Filter():
         for batch_idx in range(self.batch_size):
             select_index = np.argmax(np.random.multinomial(1,topk_distribution[batch_idx]))
             ret_ids.append(topk_indices[batch_idx][select_index])
-
+            
         return ret_ids
 
 class Sample():
@@ -514,22 +516,9 @@ class Sample():
                 for batch_idx in range(1, self.batch_size):
                         nextword_distribution_rest = self.reshape(
                             logits[batch_idx, last_token_pos_list[batch_idx]:last_token_pos_list[batch_idx]+1:1, ::], (1, -1))
-                        #print("[DEBUG] nextword_distribution shape: {}, nextword_distribution_rest shape:{} ".format(nextword_distribution.shape,nextword_distribution_rest.shape))
                         nextword_distribution = self.concat((nextword_distribution, nextword_distribution_rest))
 
-            #get filtered and sorted distribution with sorted real index for restore real next word index afterwhile
-            #sorted_distribution, real_index = self.filter_distribution(nextword_distribution)
-            
-            # print("[DEBUG] last_token_pos_list[0]: {}".format(last_token_pos_list[0]))
-            # print("[DEBUG] sorted_distribution: {},  real_index: {}".format(sorted_distribution,real_index))
-            
-            #get sampled index of sorted logits(distribution)
-            #word_index = self._sample_from_distribution(sorted_distribution)
-
-            #restore real next word index in unsorted, raw logits and convert it to list
-            #real_next_word_index = self._get_real_word(word_index,real_index) # Tensor (batch_size,)
-            #real_next_word_index_list = real_next_word_index.asnumpy().tolist()
-
+            # get sampled ids
             real_next_word_index_list = self.filter_distribution.calculate(nextword_distribution.asnumpy().astype(np.float32))
 
             append_ids = []
@@ -545,33 +534,28 @@ class Sample():
                 if early_stop_mask[batch_idx] == 1 and self.early_stop is True:
                     continue
                 
-                #next_word_str = self.tokenizer.decode([next_word_index])
                 return_ids_list[batch_idx].append(next_word_index)
                 append_ids.append(next_word_index)
             
-            #print("[DEBUG] appended_ids: {}",append_ids)
-                #full_str[batch_idx] += next_word_str
-                #generate_str[batch_idx] += next_word_str
             
             # check early_stop mask at the end of each loop
             if 0 not in early_stop_mask:
                 break
             input_ids,input_mask = add_last_token(input_ids,input_mask,overflow_strategy="shift",append_ids=append_ids,next_token_pos=last_token.get_pos(shift=i+1))
-            #print("[DEBUG] input_ids: {}, input_mask: {}".format(input_ids[0][:10],input_mask[0][:10]))
+
         #add str to full str
         generate_str = ["" for _ in range(self.batch_size)]
         full_str = ["" for _ in range(self.batch_size)]
         text_cnt = 0
         for text_ids in return_ids_list:
             text = self.tokenizer.decode(text_ids)
-            #print("[DEBUG] text_ids: {}, text: {}".format(text_ids,text))
             generate_str[text_cnt]=text
             text_cnt += 1
-            #print("[DEBUG] generate_str: {}".format(generate_str))
+            
         for batch_idx in range(self.batch_size):
             full_str[batch_idx] = input_str[batch_idx] + generate_str[batch_idx]
 
-        #returns by several conditions
+        #return by several conditions
         if self.batch_size == 1 and self.demo_mode is True:
             if self.return_ids == True:
                 return generate_str[0], input_str[0],return_ids_list[0]
@@ -584,14 +568,11 @@ class Sample():
                 return return_ids_list
             return generate_str, full_str
     
-
-
-    
-
     
 
 class BeamSearch():
     """
+    Beam Search (Default setting)
     Args:
         decoder (Model): Model for decoding
         mdoel_config (GPT2Config): configuration of GPT2 decoder
@@ -641,11 +622,17 @@ class BeamSearch():
 
     def generate(self,input_str=None,input_ids=None,input_mask=None,generate_length=1):
         """
+        generate string using beam search
+
         Args:
             input_str (list) : list of input strings
             input_ids (Tensor): (batch_size,seq_length)
             input_mask (Tensor): (batch_size,seq_length)
             generate_length (int): length of tokens to generate
+        
+        Returns:
+            max_beams_str_gen(str): string of generation
+            max_beams_str_all(str): full string (prompt + generation)
         """
 
 
@@ -959,11 +946,11 @@ class GenerationConfig():
 
 if __name__ == '__main__':
     # s = Sample(None)
-    filt = TopKTopP_Filter(2,10,k=3,p=0.9,temperature=1.0,min_tokens_to_keep=1)
-    input_ = np.random.uniform(low=0.0,high=3.0,size=(2,10))
-    print(input_)
-    ret = filt.calculate(input_)
-    print(ret)
+    # filt = TopKTopP_Filter(2,10,k=3,p=0.9,temperature=1.0,min_tokens_to_keep=1)
+    # input_ = np.random.uniform(low=0.0,high=3.0,size=(2,10))
+    # print(input_)
+    # ret = filt.calculate(input_)
+    # print(ret)
     pass
 
 
