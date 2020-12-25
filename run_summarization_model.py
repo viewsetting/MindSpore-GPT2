@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
+import sys
 import argparse
 import math
 import regex as re
@@ -169,7 +170,7 @@ def clean_hypo(text):
         return text
 
 
-def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",eval_load_param_mode="zero-shot",generation_config_path=""):
+def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",eval_load_param_mode="zero-shot",generation_config_path="",tokenizer_file=""):
     """
     Do evaluation on summarization
     Args:
@@ -198,8 +199,8 @@ def do_eval(dataset=None, network=None, metric=None, load_checkpoint_path="",eva
 
         #load nn.Cell into Model and initiate tokenizer and Sample
         model = Model(gpt2_loss)
-        tokenizer = Tokenizer(vocab_file='./src/utils/pretrain-data/gpt2-vocab.json',
-        merge_file='./src/utils/pretrain-data/gpt2-merges.txt')
+        tokenizer = Tokenizer(vocab_file=tokenizer_file+'gpt2-vocab.json',
+        merge_file=tokenizer_file+'gpt2-merges.txt')
         generate_config = GenerationConfig( file_path=generation_config_path)
         TL_DR = generate_config.get_arg("tldr") if generate_config.get_arg("tldr") is not None else True
         tldr_str = generate_config.get_arg("tldr_str") if generate_config.get_arg("tldr_str") is not None else "TL;DR:"
@@ -300,6 +301,8 @@ def run_summarization():
                         help="if append <EOS> token to the end of input str")
     parser.add_argument("--generation_config_path", type=str, default=".scripts/summary_generation_config.json",
                         help="if append <EOS> token to the end of input str")
+    parser.add_argument("--tokenizer_file_path", type=str, default=sys.path[0]+"/src/utils/pretrain-data/",
+                        help="vocab & merge file path") 
 
         
     #get args
@@ -311,6 +314,8 @@ def run_summarization():
     load_finetune_ckpt_path = args_opt.load_finetune_ckpt_path
     load_pretrain_ckpt_path = args_opt.load_pretrain_ckpt_path
     eval_load_param_mode = args_opt.eval_load_param_mode
+
+    tokenizer_file = args_opt.tokenizer_file_path
     
     #resume training True or False
     resume = True if args_opt.resume.lower() == "true" else False
@@ -355,7 +360,7 @@ def run_summarization():
         print("============ Start Loading Evaluation Dataset ============")
         eval_dataset = create_cnn_dailymail_dataset(
             dataset_path=eval_dataset_file_path)
-        do_eval(eval_dataset, GPT2SummarizationModel, metric, load_finetune_ckpt_path,eval_load_param_mode,generation_config_path)
+        do_eval(eval_dataset, GPT2SummarizationModel, metric, load_finetune_ckpt_path,eval_load_param_mode,generation_config_path,tokenizer_file)
 
 
 
