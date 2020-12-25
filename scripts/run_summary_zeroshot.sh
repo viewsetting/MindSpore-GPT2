@@ -24,7 +24,7 @@ eval_load_param_mode='zero-shot' #[zero-shot,finetune]
 datafile="/data/tju/mindspore-dataset/cnn_dailymail_test_3-mindrecord"
 
 #generate configuration path
-generate_conf="generation_config_topk2.json"
+generate_conf="scripts/generation_config_nohint_topk2.json"
 
 #ckpt file path
 ckpt_path="/data/tju/pretrained-weight/mindspore_model_small.ckpt"
