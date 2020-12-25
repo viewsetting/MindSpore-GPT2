@@ -1,9 +1,0 @@
-{
-    "generate_mode":"sample",
-    "topk":2,
-    "topp":1.0,
-    "temperature":1.0,
-    "generate_length":100,
-    "tldr": true,
-    "tldr_str": "TL;DR:"
-}
