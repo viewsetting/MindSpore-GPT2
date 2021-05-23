@@ -12,7 +12,7 @@ The official link of MindSpore ModelZoo: [Link](https://gitee.com/mindspore/mind
 
 ~~Once it is merged to master branch of MindSpore repository, the official link is here: [Link](https://gitee.com/mindspore/mindspore/tree/master/model_zoo/research/nlp/gpt2)~~
 
-## Brief
+## In Brief
 
 An implementation of GPT2 with MindSpore from scratch.<br>OpenAI's original paper: A Radford, J Wu, R Child, D Luan, D Amodei, Ilya Sutskever "Language Models are Unsupervised Multitask Learners" [Link](https://github.com/mindspore-ai/mindspore/tree/master/model_zoo/official/nlp) 
 
