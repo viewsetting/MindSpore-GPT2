@@ -4,9 +4,9 @@
 
 This is an early version of Minsdpore GPT2. The final version will be merged to MindSpore's ModelZoo. 
 
-MindSpore GPT2 has been merged to master branch of MindSpore's official repo. [Link](https://gitee.com/mindspore/mindspore/tree/master/model_zoo/research/nlp/gpt2)
+MindSpore GPT2 has been merged to master branch of MindSpore's official repo. [Link](https://gitee.com/mindspore/models/tree/master/research/nlp/gpt2)
 
-The official link of MindSpore ModelZoo: [Link](https://gitee.com/mindspore/mindspore/tree/master/model_zoo)
+The official link of MindSpore ModelZoo: [Link](https://gitee.com/mindspore/models)
 
 ~~You can find our unmerged official MindSpore ModelZoo commit here: [Link](https://gitee.com/mindspore/mindspore/tree/f5cb27b21e40292ebd0d7b8afbe32a02acd13ae1/model_zoo/research/nlp/gpt2) [Full Repo](https://gitee.com/ouyang_xx/mindspore/tree/master/model_zoo/research/nlp/gpt2)~~
 
